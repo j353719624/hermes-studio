@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest'
+import { homedir } from 'os'
+import { join, resolve } from 'path'
+import {
+  getCorsOrigins,
+  getPublicBasePath,
+  getSocketIoPath,
+  getUnixSocketMode,
+  getLanAdvertiseUrl,
+  getListenHost,
+  getWebUiHome,
+  isAppEntitlementRequired,
+  isFnosMode,
+  shouldCreateWebUiDataDir,
+  stripPublicBasePath,
+} from '../../packages/server/src/config'
+
+describe('server config', () => {
+  it('defaults to an IPv4 bind host', () => {
+    expect(getListenHost({})).toBe('0.0.0.0')
+  })
+
+  it('uses BIND_HOST when provided', () => {
+    expect(getListenHost({ BIND_HOST: ' :: ' })).toBe('::')
+  })
+
+  it('normalizes the fnOS public prefix and Socket.IO path', () => {
+    const env = { HERMES_WEB_UI_BASE_PATH: ' /app/hermes-studio/ ' }
+    expect(getPublicBasePath(env)).toBe('/app/hermes-studio')
+    expect(getSocketIoPath(env)).toBe('/app/hermes-studio/socket.io')
+    expect(stripPublicBasePath('/app/hermes-studio/api/health', '/app/hermes-studio')).toBe('/api/health')
+    expect(stripPublicBasePath('/api/health', '/app/hermes-studio')).toBe('/api/health')
+  })
+
+  it('validates fnOS mode and Unix Socket permissions', () => {
+    expect(isFnosMode({ HERMES_FNOS_MODE: 'true' })).toBe(true)
+    expect(isFnosMode({ HERMES_FNOS_MODE: '0' })).toBe(false)
+    expect(getUnixSocketMode({ HERMES_WEB_UI_SOCKET_MODE: '0660' })).toBe(0o660)
+    expect(() => getUnixSocketMode({ HERMES_WEB_UI_SOCKET_MODE: '0888' })).toThrow()
+  })
+
+  it('ignores blank BIND_HOST values', () => {
+    expect(getListenHost({ BIND_HOST: ' ' })).toBe('0.0.0.0')
+  })
+
+  it('defaults web-ui home to ~/.hermes-web-ui', () => {
+    expect(getWebUiHome({})).toBe(join(homedir(), '.hermes-web-ui'))
+  })
+
+  it('uses HERMES_WEB_UI_HOME when provided', () => {
+    expect(getWebUiHome({ HERMES_WEB_UI_HOME: ' ./tmp/hermes-ui ' })).toBe(resolve('./tmp/hermes-ui'))
+  })
+
+  it('uses HERMES_WEBUI_STATE_DIR as a compatibility alias', () => {
+    expect(getWebUiHome({ HERMES_WEBUI_STATE_DIR: ' ./tmp/hermes-state ' })).toBe(resolve('./tmp/hermes-state'))
+  })
+
+  it('only creates the development data directory outside production', () => {
+    expect(shouldCreateWebUiDataDir({ NODE_ENV: 'development' })).toBe(true)
+    expect(shouldCreateWebUiDataDir({ NODE_ENV: 'production' })).toBe(false)
+  })
+
+  it('does not enable cross-origin requests by default', () => {
+    expect(getCorsOrigins({})).toBe('')
+  })
+
+  it('uses CORS_ORIGINS when provided', () => {
+    expect(getCorsOrigins({ CORS_ORIGINS: ' https://app.example, http://localhost:3000 ' })).toBe('https://app.example, http://localhost:3000')
+  })
+
+  it('normalizes the Docker LAN advertise origin', () => {
+    expect(getLanAdvertiseUrl({ HERMES_LAN_ADVERTISE_URL: ' 192.168.10.102:6060/path ' })).toBe('http://192.168.10.102:6060')
+    expect(getLanAdvertiseUrl({ HERMES_LAN_ADVERTISE_URL: 'file:///tmp/studio' })).toBe('')
+  })
+
+  it('enforces App entitlements by default and allows an explicit compatibility opt-out', () => {
+    expect(isAppEntitlementRequired({})).toBe(true)
+    expect(isAppEntitlementRequired({ HERMES_APP_ENTITLEMENT_REQUIRED: 'true' })).toBe(true)
+    expect(isAppEntitlementRequired({ HERMES_APP_ENTITLEMENT_REQUIRED: 'off' })).toBe(false)
+  })
+})

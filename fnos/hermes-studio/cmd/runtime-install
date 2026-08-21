@@ -1,0 +1,47 @@
+#!/bin/sh
+
+APPDEST="${TRIM_APPDEST:?TRIM_APPDEST is required}"
+PKGVAR="${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+ARCHIVE="${APPDEST}/runtime/hermes-runtime-linux-x64.tar.gz"
+CHECKSUM_FILE="${APPDEST}/runtime/hermes-runtime-linux-x64.tar.gz.sha256"
+TARGET="${PKGVAR}/runtime"
+STAGE="${PKGVAR}/.runtime-install.$$"
+
+fail() {
+  printf '%s\n' "$1" >&2
+  if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+    printf '%s\n' "$1" >>"${TRIM_TEMP_LOGFILE}"
+  fi
+  rm -rf "${STAGE}"
+  exit 1
+}
+
+[ -f "${ARCHIVE}" ] || fail "Bundled Hermes runtime archive is missing."
+[ -f "${CHECKSUM_FILE}" ] || fail "Bundled Hermes runtime checksum is missing."
+command -v sha256sum >/dev/null 2>&1 || fail "fnOS is missing sha256sum."
+command -v tar >/dev/null 2>&1 || fail "fnOS is missing tar."
+
+expected="$(awk 'NR == 1 { print $1 }' "${CHECKSUM_FILE}")"
+actual="$(sha256sum "${ARCHIVE}" | awk '{ print $1 }')"
+[ -n "${expected}" ] && [ "${actual}" = "${expected}" ] || fail "Bundled Hermes runtime checksum verification failed."
+
+mkdir -p "${PKGVAR}" || fail "Cannot create the package data directory."
+rm -rf "${STAGE}"
+mkdir -p "${STAGE}" || fail "Cannot create the runtime staging directory."
+tar -xzf "${ARCHIVE}" -C "${STAGE}" || fail "Cannot extract the bundled Hermes runtime."
+[ -x "${STAGE}/python/venv/bin/hermes" ] || fail "Extracted runtime does not contain Hermes CLI."
+[ -x "${STAGE}/python/venv/bin/python3" ] || fail "Extracted runtime does not contain Python."
+[ -x "${STAGE}/node/bin/node" ] || fail "Extracted runtime does not contain Node.js."
+[ -f "${STAGE}/runtime-manifest.json" ] || fail "Extracted runtime manifest is missing."
+
+rm -rf "${TARGET}.previous"
+if [ -d "${TARGET}" ]; then
+  mv "${TARGET}" "${TARGET}.previous" || fail "Cannot preserve the previous runtime."
+fi
+if ! mv "${STAGE}" "${TARGET}"; then
+  [ -d "${TARGET}.previous" ] && mv "${TARGET}.previous" "${TARGET}"
+  fail "Cannot activate the bundled Hermes runtime."
+fi
+rm -rf "${TARGET}.previous"
+mkdir -p "${PKGVAR}/studio" "${PKGVAR}/hermes" "${PKGVAR}/workspace" "${PKGVAR}/uploads" "${PKGVAR}/logs"
+exit 0

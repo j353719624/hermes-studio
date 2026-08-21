@@ -1,0 +1,28 @@
+{
+  "target": {
+    "os": "linux",
+    "arch": "x64",
+    "fnosPlatform": "x86"
+  },
+  "node": {
+    "version": "24.16.0",
+    "archive": "node-v24.16.0-linux-x64.tar.xz",
+    "url": "https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-x64.tar.xz",
+    "sha256": "d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9"
+  },
+  "hermesRuntime": {
+    "version": "0.20.4",
+    "archive": "hermes-runtime-hermes-agent-0.20.4-linux-x64.tar.gz",
+    "packageName": "hermes-runtime-linux-x64.tar.gz",
+    "url": "https://download.ekkolearnai.com/hermes-0.20.4-runtime/hermes-runtime-hermes-agent-0.20.4-linux-x64.tar.gz",
+    "sha256": "7267a6ff59ae248274fcc6ab583c168fdb80b96c0bd2015a20a818181d975301",
+    "size": 532723846,
+    "sourceCommit": "e624e9fde561e1add9388384012b295fde669ade"
+  },
+  "fnpack": {
+    "version": "1.2.3",
+    "archive": "fnpack-1.2.3-linux-amd64",
+    "url": "https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64",
+    "sha256": "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
+  }
+}

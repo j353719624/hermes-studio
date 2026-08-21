@@ -1,0 +1,29 @@
+[
+  {
+    "stepTitle": "卸载 Hermes Studio",
+    "items": [
+      {
+        "type": "radio",
+        "field": "wizard_data_action",
+        "label": "保留或删除应用数据",
+        "initValue": "keep",
+        "options": [
+          {
+            "label": "仅卸载，保留数据在原存储空间",
+            "value": "keep"
+          },
+          {
+            "label": "删除应用数据（配置、会话、工作区等，不可恢复）",
+            "value": "delete"
+          }
+        ],
+        "rules": [
+          {
+            "required": true,
+            "message": "请选择如何处理应用数据"
+          }
+        ]
+      }
+    ]
+  }
+]

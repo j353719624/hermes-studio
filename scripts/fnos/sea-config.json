@@ -1,0 +1,7 @@
+{
+  "main": "scripts/fnos/sea-entry.cjs",
+  "output": "build/fnos/cache/hermes-studio.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false
+}

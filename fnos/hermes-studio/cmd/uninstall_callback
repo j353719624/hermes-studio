@@ -1,0 +1,35 @@
+#!/bin/sh
+
+# fnOS normally preserves TRIM_PKGVAR during uninstall.  Keep that behavior
+# unless the user explicitly selected the destructive option in wizard/uninstall.
+ACTION="${wizard_data_action:-keep}"
+case "${ACTION}" in
+  keep)
+    exit 0
+    ;;
+  delete)
+    ;;
+  *)
+    printf '%s\n' "Invalid uninstall data action; keeping application data." >&2
+    exit 1
+    ;;
+esac
+
+PKGVAR="${TRIM_PKGVAR:-}"
+
+# Only remove the Hermes Studio data directory.  Refuse empty, root, traversal,
+# or unexpected paths so a malformed fnOS environment cannot cause broad deletion.
+case "${PKGVAR}" in
+  ''|/|*..*)
+    printf '%s\n' "Refusing to delete an unsafe Hermes Studio data path." >&2
+    exit 1
+    ;;
+  /vol*/@appdata/hermes-studio|/var/apps/hermes-studio/var|/tmp/hermes-studio-fnos-verify-*/var)
+    ;;
+  *)
+    printf '%s\n' "Refusing to delete an unexpected Hermes Studio data path." >&2
+    exit 1
+    ;;
+esac
+
+rm -rf "${PKGVAR}"

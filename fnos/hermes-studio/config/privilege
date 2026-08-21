@@ -1,0 +1,7 @@
+{
+  "defaults": {
+    "run-as": "package"
+  },
+  "username": "trim.hermesstudio",
+  "groupname": "trim.hermesstudio"
+}

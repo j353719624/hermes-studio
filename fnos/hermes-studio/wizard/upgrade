@@ -1,0 +1,11 @@
+[
+  {
+    "stepTitle": "Upgrade Hermes Studio",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "Upgrade the application runtime while keeping data in the fnOS application data directory."
+      }
+    ]
+  }
+]

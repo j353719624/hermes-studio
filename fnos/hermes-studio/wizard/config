@@ -1,0 +1,11 @@
+[
+  {
+    "stepTitle": "Configure Hermes Studio",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "Configure model providers and API keys from Hermes Studio after it starts."
+      }
+    ]
+  }
+]

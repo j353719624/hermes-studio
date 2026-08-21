@@ -1,0 +1,181 @@
+#!/bin/sh
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+APPDEST="${TRIM_APPDEST:?TRIM_APPDEST is required}"
+PKGVAR="${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+PKGTMP="${TRIM_PKGTMP:-${PKGVAR}/tmp}"
+PKGHOME="${TRIM_PKGHOME:-${PKGVAR}/home}"
+PID_FILE="${PKGVAR}/hermes-studio.pid"
+LOG_DIR="${PKGVAR}/logs"
+LOG_FILE="${LOG_DIR}/hermes-studio.log"
+SOCKET_PATH="${APPDEST}/hermes-studio.sock"
+BRIDGE_SOCKET_PATH="${PKGTMP}/hermes-agent-bridge.sock"
+PROGRAM="${APPDEST}/hermes-studio"
+RUNTIME_ROOT="${PKGVAR}/runtime"
+RUNTIME_PREVIOUS="${PKGVAR}/runtime.previous"
+PYTHON_ROOT="${RUNTIME_ROOT}/python"
+VENV_ROOT="${PYTHON_ROOT}/venv"
+NODE_ROOT="${RUNTIME_ROOT}/node"
+HERMES_BIN="${VENV_ROOT}/bin/hermes"
+PYTHON_BIN="${VENV_ROOT}/bin/python3"
+CODING_AGENT_ROOT="${PKGVAR}/coding-agents"
+
+status() {
+  [ -f "${PID_FILE}" ] || return 1
+  pid="$(cat "${PID_FILE}" 2>/dev/null)"
+  [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null
+}
+
+write_failure() {
+  message="$1"
+  printf '%s\n' "${message}" >>"${LOG_FILE}"
+  if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+    printf '%s\n' "${message}" >>"${TRIM_TEMP_LOGFILE}"
+  fi
+}
+
+validate_runtime() {
+  [ -x "${PROGRAM}" ] || { write_failure "Hermes Studio binary is missing."; return 1; }
+  [ -x "${HERMES_BIN}" ] || { write_failure "Bundled Hermes CLI is missing. Reinstall the FPK."; return 1; }
+  [ -x "${PYTHON_BIN}" ] || { write_failure "Bundled Python runtime is missing. Reinstall the FPK."; return 1; }
+  [ -x "${NODE_ROOT}/bin/node" ] || { write_failure "Bundled Hermes Node runtime is missing. Reinstall the FPK."; return 1; }
+  [ -f "${RUNTIME_ROOT}/runtime-manifest.json" ] || { write_failure "Bundled runtime manifest is missing."; return 1; }
+}
+
+restore_previous_runtime() {
+  [ -d "${RUNTIME_PREVIOUS}" ] || return 1
+  failed_runtime="${PKGVAR}/runtime.failed.$$"
+  rm -rf "${failed_runtime}"
+  if [ -e "${RUNTIME_ROOT}" ] || [ -L "${RUNTIME_ROOT}" ]; then
+    mv "${RUNTIME_ROOT}" "${failed_runtime}" || return 1
+  fi
+  if ! mv "${RUNTIME_PREVIOUS}" "${RUNTIME_ROOT}"; then
+    [ -e "${failed_runtime}" ] && mv "${failed_runtime}" "${RUNTIME_ROOT}"
+    return 1
+  fi
+  rm -rf "${failed_runtime}"
+  return 0
+}
+
+start_process() {
+  status && return 0
+  rm -f "${PID_FILE}" "${SOCKET_PATH}" "${BRIDGE_SOCKET_PATH}"
+  mkdir -p "${LOG_DIR}" "${PKGTMP}" "${PKGHOME}" \
+    "${PKGVAR}/studio" "${PKGVAR}/hermes" "${PKGVAR}/workspace" "${PKGVAR}/uploads" \
+    "${CODING_AGENT_ROOT}/home" "${CODING_AGENT_ROOT}/npm"
+  if ! validate_runtime; then
+    if restore_previous_runtime; then
+      write_failure "New Hermes Runtime failed validation; restored the previous Runtime."
+      start_process
+      return $?
+    fi
+    return 1
+  fi
+
+  system_path="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+  export HOME="${PKGHOME}"
+  export TMPDIR="${PKGTMP}"
+  export PATH="${CODING_AGENT_ROOT}/npm/bin:${VENV_ROOT}/bin:${NODE_ROOT}/bin:${APPDEST}:${system_path}"
+  export VIRTUAL_ENV="${VENV_ROOT}"
+  export UV_PROJECT_ENVIRONMENT="${VENV_ROOT}"
+  export UV_PYTHON="${PYTHON_BIN}"
+  export UV_SYSTEM_PYTHON=1
+  export PYTHONNOUSERSITE=1
+  export HERMES_BIN
+  export HERMES_AGENT_CLI_PYTHON="${PYTHON_BIN}"
+  export HERMES_AGENT_BRIDGE_PYTHON="${PYTHON_BIN}"
+  export HERMES_AGENT_ROOT="${PYTHON_ROOT}"
+  export HERMES_AGENT_NODE="${NODE_ROOT}/bin/node"
+  export HERMES_AGENT_NODE_ROOT="${NODE_ROOT}"
+  export HERMES_WEB_UI_MCP_BIN="${APPDEST}/bin/hermes-studio-mcp.mjs"
+  export HERMES_AGENT_BRIDGE_ENDPOINT="ipc://${BRIDGE_SOCKET_PATH}"
+  export HERMES_AGENT_BRIDGE_WORKER_TRANSPORT=ipc
+  export HERMES_AGENT_BRIDGE_KILL_STALE_IPC=1
+  export HERMES_FNOS_RUNTIME_ROOT="${RUNTIME_ROOT}"
+  export HERMES_FNOS_CMD_DIR="${SCRIPT_DIR}"
+  export AGENT_BROWSER_HOME="${PYTHON_ROOT}/agent-browser"
+  export PLAYWRIGHT_BROWSERS_PATH="${PYTHON_ROOT}/ms-playwright"
+  export HERMES_HOME="${PKGVAR}/hermes"
+  export HERMES_CODING_AGENT_GLOBAL_HOME="${CODING_AGENT_ROOT}/home"
+  export npm_config_prefix="${CODING_AGENT_ROOT}/npm"
+  export NPM_CONFIG_PREFIX="${CODING_AGENT_ROOT}/npm"
+  export HERMES_WEB_UI_HOME="${PKGVAR}/studio"
+  export HERMES_WEBUI_STATE_DIR="${PKGVAR}/studio"
+  export HERMES_WEB_UI_SOCKET="${SOCKET_PATH}"
+  export HERMES_WEB_UI_SOCKET_MODE=0660
+  export HERMES_WEB_UI_BASE_PATH=/app/hermes-studio
+  export HERMES_FNOS_MODE=1
+  export HERMES_WEB_UI_DISABLE_UPDATE_CHECK=true
+  export HERMES_WEB_UI_DISABLE_GATEWAY_AUTOSTART=1
+  export HERMES_WEB_UI_STOP_GATEWAYS_ON_SHUTDOWN=1
+  export HERMES_AGENT_BRIDGE_STOP_ON_SHUTDOWN=1
+  export HERMES_LAN_DISCOVERY_ENABLED=1
+  export WORKSPACE_BASE="${PKGVAR}/workspace"
+  export UPLOAD_DIR="${PKGVAR}/uploads"
+  export NODE_PATH="${APPDEST}/node_modules"
+  export NODE_ENV=production
+  export BIND_HOST=127.0.0.1
+  export PORT=0
+
+  if command -v setsid >/dev/null 2>&1; then
+    nohup setsid "${PROGRAM}" </dev/null >>"${LOG_FILE}" 2>&1 &
+  else
+    nohup "${PROGRAM}" </dev/null >>"${LOG_FILE}" 2>&1 &
+  fi
+  pid=$!
+  printf '%s\n' "${pid}" >"${PID_FILE}"
+
+  attempts=0
+  while [ "${attempts}" -lt 120 ]; do
+    if ! kill -0 "${pid}" 2>/dev/null; then
+      rm -f "${PID_FILE}" "${SOCKET_PATH}" "${BRIDGE_SOCKET_PATH}"
+      if restore_previous_runtime; then
+        write_failure "New Hermes Runtime failed to start; restored the previous Runtime."
+        start_process
+        return $?
+      fi
+      write_failure "Hermes Studio exited during startup. Check ${LOG_FILE}."
+      return 1
+    fi
+    if [ -S "${SOCKET_PATH}" ]; then
+      rm -rf "${RUNTIME_PREVIOUS}"
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+
+  kill -TERM "${pid}" 2>/dev/null || true
+  rm -f "${PID_FILE}" "${SOCKET_PATH}" "${BRIDGE_SOCKET_PATH}"
+  if restore_previous_runtime; then
+    write_failure "New Hermes Runtime did not become ready; restored the previous Runtime."
+    start_process
+    return $?
+  fi
+  write_failure "Hermes Studio did not create its fnOS gateway Socket in time."
+  return 1
+}
+
+stop_process() {
+  if status; then
+    pid="$(cat "${PID_FILE}")"
+    kill -TERM "${pid}" 2>/dev/null || true
+    attempts=0
+    while kill -0 "${pid}" 2>/dev/null && [ "${attempts}" -lt 20 ]; do
+      attempts=$((attempts + 1))
+      sleep 1
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  fi
+  rm -f "${PID_FILE}" "${SOCKET_PATH}" "${BRIDGE_SOCKET_PATH}"
+}
+
+case "${1:-}" in
+  start) start_process ;;
+  stop) stop_process ;;
+  restart) stop_process && start_process ;;
+  status) status && exit 0 || exit 3 ;;
+  *) exit 1 ;;
+esac
