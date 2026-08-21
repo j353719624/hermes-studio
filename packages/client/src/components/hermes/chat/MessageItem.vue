@@ -51,6 +51,7 @@ const props = defineProps<{
 }>();
 const { t } = useI18n();
 const toast = useMessage();
+const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== "1";
 
 const isSystem = computed(() => props.message.role === "system");
 const isAgentError = computed(() => props.message.role === "assistant" && props.message.systemType === "error");
@@ -277,7 +278,7 @@ const quotableContent = computed(() => {
 // 若两者共存，则拼接展示（罕见，但保持信息不丢）。
 const hasReasoningField = computed(() => !!(props.message.reasoning && props.message.reasoning.length > 0));
 
-const hasThinking = computed(() => hasReasoningField.value || parsedThinking.value.hasThinking);
+const hasThinking = computed(() => showReasoningUi && (hasReasoningField.value || parsedThinking.value.hasThinking));
 
 const thinkingFullText = computed(() => {
   const parts: string[] = [];
@@ -612,7 +613,7 @@ function toggleWorkspaceChange(changeId: string): void {
 
 const hasToolDetails = computed(
   () => !!(
-    props.message.reasoning?.trim()
+    (showReasoningUi && props.message.reasoning?.trim())
     || toolArgsPayload.value.full
     || toolResultPayload.value.full
   ),
@@ -935,7 +936,7 @@ onBeforeUnmount(() => {
         }}</span>
       </div>
       <div v-if="!isSubagentTool && toolExpanded && hasToolDetails" class="tool-details" @click="handleToolDetailClick">
-        <div v-if="message.reasoning?.trim()" class="tool-detail-section">
+        <div v-if="showReasoningUi && message.reasoning?.trim()" class="tool-detail-section">
           <div class="tool-detail-label">{{ t("chat.thinkingLabel") }}</div>
           <div class="tool-detail-reasoning">
             <MarkdownRenderer :content="message.reasoning" />

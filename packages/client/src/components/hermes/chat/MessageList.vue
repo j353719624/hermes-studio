@@ -34,6 +34,7 @@ const props = withDefaults(defineProps<{
 const chatStore = useChatStore();
 const { t } = useI18n();
 const { toolTraceVisible } = useToolTraceVisibility();
+const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== "1";
 const listRef = ref<InstanceType<typeof VirtualMessageList> | null>(null);
 const pendingInitialScrollKey = ref<string | null>(null);
 const showScrollBottomButton = ref(false);
@@ -107,7 +108,7 @@ const hasCompletedAssistantReply = computed(() => {
   );
 });
 const showThinkingIndicator = computed(() =>
-  chatStore.isRunActive && !hasCompletedAssistantReply.value,
+  showReasoningUi && chatStore.isRunActive && !hasCompletedAssistantReply.value,
 );
 
 const currentToolCalls = computed(() => {

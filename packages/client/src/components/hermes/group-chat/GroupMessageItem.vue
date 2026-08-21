@@ -63,6 +63,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useMessage()
+const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== '1'
 const groupChatStore = useGroupChatStore()
 const filesStore = useFilesStore()
 const toolPanelStore = useToolPanelStore()
@@ -129,7 +130,7 @@ const avatarDisplayName = computed(() => {
 const mentionNames = computed(() => ['all', ...props.agents.map(a => a.name).filter(Boolean)])
 const parsedThinking = computed(() => parseThinking(props.message.content || '', { streaming: !!props.message.isStreaming }))
 const hasReasoningField = computed(() => !!(props.message.reasoning && props.message.reasoning.length > 0))
-const hasThinking = computed(() => hasReasoningField.value || parsedThinking.value.hasThinking)
+const hasThinking = computed(() => showReasoningUi && (hasReasoningField.value || parsedThinking.value.hasThinking))
 const thinkingFullText = computed(() => {
     const parts: string[] = []
     if (props.message.reasoning) parts.push(props.message.reasoning)
@@ -262,7 +263,7 @@ const selectedWorkspaceDiffFileId = computed(() => toolPanelStore.workspaceDiff?
 const toolArgsPayload = computed(() => formatToolPayload(props.message.toolArgs))
 const toolResultPayload = computed(() => formatToolPayload(props.message.toolResult, true))
 const hasToolDetails = computed(() => !!(
-    props.message.reasoning?.trim()
+    (showReasoningUi && props.message.reasoning?.trim())
     || toolArgsPayload.value.full
     || toolResultPayload.value.full
 ))
@@ -690,7 +691,7 @@ onBeforeUnmount(() => {
                 <span v-if="message.toolStatus === 'interrupted'" class="tool-interrupted-badge">{{ t('chat.toolResultUnavailable') }}</span>
             </div>
             <div v-if="toolExpanded && hasToolDetails" class="tool-details" @click="handleToolDetailClick">
-                <div v-if="message.reasoning?.trim()" class="tool-detail-section">
+                <div v-if="showReasoningUi && message.reasoning?.trim()" class="tool-detail-section">
                     <div class="tool-detail-label">{{ t('chat.thinkingLabel') }}</div>
                     <div class="tool-detail-reasoning">
                         <MarkdownRenderer :content="message.reasoning" />
