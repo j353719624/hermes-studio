@@ -265,7 +265,7 @@ function handleUpdateClick() {
           </svg>
         </div>
         <div v-show="!isGroupCollapsed('tools')" class="nav-group-items">
-          <RouteLinkItem v-if="isDesktopShell && hasRoute('hermes.browser')" class="nav-item" :to="{ name: 'hermes.browser' }" :active="selectedKey === 'hermes.browser'">
+          <RouteLinkItem v-if="(isDesktopShell || fnosMode) && hasRoute('hermes.browser')" class="nav-item" :to="{ name: 'hermes.browser' }" :active="selectedKey === 'hermes.browser'">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9" />
               <path d="M3 9h18" />

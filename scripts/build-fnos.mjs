@@ -162,6 +162,20 @@ function validateTemplate() {
   }
 }
 
+function validateBundledBrowserRuntime(runtimeArchive) {
+  const required = [
+    './python/node/bin/agent-browser',
+    './python/node/lib/node_modules/agent-browser/bin/agent-browser-linux-x64',
+  ]
+  for (const entry of required) {
+    try {
+      captureWsl(['tar', '-tzf', toWslPath(runtimeArchive), entry])
+    } catch {
+      throw new Error(`Hermes Runtime 缺少 fnOS 本机浏览器文件：${entry}`)
+    }
+  }
+}
+
 function resolveNpmCli() {
   const candidates = [
     process.env.npm_execpath,
@@ -292,6 +306,7 @@ async function assembleStage(nodeBin, runtimeArchive) {
     version: APP_PACKAGE.version,
     description: 'Self-contained Hermes Studio runtime for fnOS',
   }
+  validateBundledBrowserRuntime(runtimeArchive)
   writeFileSync(join(appDir, 'package.json'), `${JSON.stringify(minimalPackage, null, 2)}\n`)
   copyFileSync(join(ROOT, 'LICENSE'), join(appDir, 'LICENSE'))
 
@@ -350,6 +365,12 @@ async function assembleStage(nodeBin, runtimeArchive) {
       sharp: '0.35.3',
       socketIo: '4.8.3',
       platform: 'linux-x64',
+    },
+    browser: {
+      engine: 'agent-browser',
+      mode: 'local',
+      runtimePath: 'runtime/python/node/lib/node_modules/agent-browser',
+      stream: true,
     },
   }
   writeFileSync(join(appDir, 'build-manifest.json'), `${JSON.stringify(buildManifest, null, 2)}\n`)

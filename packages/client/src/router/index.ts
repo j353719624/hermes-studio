@@ -228,11 +228,13 @@ const FNOS_UNAVAILABLE_ROUTES = new Set([
 
 // Desktop exposes a dedicated settings page. Actual browsing stays inside the
 // chat tool panel so this route never creates or positions a WebContentsView.
-if (hasDesktopBrowserBridge()) {
+if (hasDesktopBrowserBridge() || isFnosMode()) {
   router.addRoute({
     path: '/hermes/browser',
     name: 'hermes.browser',
-    component: () => import('@/views/hermes/DesktopBrowserView.vue'),
+    component: () => isFnosMode()
+      ? import('@/views/hermes/FnosBrowserView.vue')
+      : import('@/views/hermes/DesktopBrowserView.vue'),
   })
 }
 

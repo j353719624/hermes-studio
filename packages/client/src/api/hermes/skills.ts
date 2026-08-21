@@ -223,3 +223,10 @@ export async function importSkill(files: File[], category?: string): Promise<{ n
   }
   return payload || { name: '' }
 }
+
+export async function importSkillFromPath(sourcePath: string, category?: string): Promise<{ name: string }> {
+  return request<{ name: string }>('/api/hermes/skills/import-path', {
+    method: 'POST',
+    body: JSON.stringify({ path: sourcePath, category: category || undefined }),
+  })
+}

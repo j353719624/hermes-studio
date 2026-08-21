@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, realpath, rm, stat, writeFile, cp } from 'fs/promises'
+import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile, cp } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
-import { dirname, join, resolve } from 'path'
+import { basename, dirname, join, relative, resolve } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import AdmZip from 'adm-zip'
 import {
@@ -9,6 +9,7 @@ import {
 } from '../../services/config-helpers'
 import type { SkillSource } from '../../services/config-helpers'
 import { isPathWithin } from '../../services/hermes/hermes-path'
+import { resolveAllowedWorkspaceFolder } from '../../services/hermes/workspace-path'
 import { getActiveProfileName, getProfileDir } from '../../services/hermes/hermes-profile'
 import { getSkillUsageStatsFromDb } from '../../db/hermes/sessions-db'
 
@@ -651,21 +652,175 @@ export async function updateExternalDirs(ctx: any) {
     deduped.push(entry)
   }
 
+  let storedDirs = deduped
+  if (process.env.HERMES_FNOS_MODE === '1') {
+    const authorizedDirs: string[] = []
+    for (const entry of deduped) {
+      const allowed = await resolveAllowedWorkspaceFolder(entry)
+      if (!allowed) {
+        ctx.status = 403
+        ctx.body = { error: 'External skill directory is not an authorized fnOS folder' }
+        return
+      }
+      authorizedDirs.push(allowed.fullPath)
+    }
+    storedDirs = authorizedDirs
+  }
+
   try {
     await updateConfigYamlForProfile(requestedProfile(ctx), (config) => {
       if (!config.skills) config.skills = {}
-      if (deduped.length === 0) {
+      if (storedDirs.length === 0) {
         delete config.skills.external_dirs
       } else {
         // Always normalise to array form even if the previous value was a string.
-        config.skills.external_dirs = deduped
+        config.skills.external_dirs = storedDirs
       }
       return config
     })
-    ctx.body = { success: true, dirs: deduped }
+    ctx.body = { success: true, dirs: storedDirs }
   } catch (err: any) {
     ctx.status = 500
     ctx.body = { error: err.message }
+  }
+}
+
+const MAX_PATH_IMPORT_FILES = 500
+const MAX_PATH_IMPORT_BYTES = 50 * 1024 * 1024
+
+interface SkillImportTree {
+  files: string[]
+  bytes: number
+}
+
+async function inspectSkillImportTree(root: string): Promise<SkillImportTree> {
+  const files: string[] = []
+  let bytes = 0
+
+  async function visit(current: string): Promise<void> {
+    const entries = await readdir(current, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Skill directory cannot contain symbolic links: ${entry.name}`)
+      }
+      const fullPath = join(current, entry.name)
+      if (entry.isDirectory()) {
+        await visit(fullPath)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const info = await stat(fullPath)
+      bytes += info.size
+      if (bytes > MAX_PATH_IMPORT_BYTES) {
+        const error = new Error(`Skill directory is too large (max ${MAX_PATH_IMPORT_BYTES / 1024 / 1024}MB)`) as Error & { status?: number }
+        error.status = 413
+        throw error
+      }
+      files.push(fullPath)
+      if (files.length > MAX_PATH_IMPORT_FILES) {
+        const error = new Error(`Skill directory has too many files (max ${MAX_PATH_IMPORT_FILES})`) as Error & { status?: number }
+        error.status = 413
+        throw error
+      }
+    }
+  }
+
+  await visit(root)
+  return { files, bytes }
+}
+
+async function copySkillImportTree(sourceRoot: string, targetRoot: string, files: string[]): Promise<void> {
+  for (const sourcePath of files) {
+    const relPath = relative(sourceRoot, sourcePath)
+    const targetPath = resolve(join(targetRoot, relPath))
+    if (!isPathWithin(targetPath, targetRoot)) {
+      throw new Error('Skill import path escapes target directory')
+    }
+    await mkdir(dirname(targetPath), { recursive: true })
+    await copyFile(sourcePath, targetPath)
+  }
+}
+
+/** POST /api/hermes/skills/import-path — import a skill directory selected in fnOS. */
+export async function importSkillFromPath(ctx: any) {
+  const body = (ctx.request.body || {}) as { path?: unknown; category?: unknown }
+  const requestedPath = typeof body.path === 'string' ? body.path.trim() : ''
+  const category = typeof body.category === 'string' ? body.category.trim() : ''
+  if (!requestedPath) {
+    ctx.status = 400
+    ctx.body = { error: 'path is required' }
+    return
+  }
+  if (category && !isValidSkillName(category)) {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid category name' }
+    return
+  }
+
+  const allowed = await resolveAllowedWorkspaceFolder(requestedPath)
+  if (!allowed) {
+    ctx.status = 403
+    ctx.body = { error: 'Skill directory is not an authorized fnOS folder' }
+    return
+  }
+
+  const sourceDir = allowed.fullPath
+  const skillName = basename(sourceDir)
+  if (!isValidSkillName(skillName)) {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid skill directory name' }
+    return
+  }
+  if (await safeReadFile(join(sourceDir, 'SKILL.md')) === null) {
+    ctx.status = 400
+    ctx.body = { error: 'Skill directory must contain a SKILL.md file at its root' }
+    return
+  }
+
+  const skillsDir = requestSkillsDir(ctx)
+  const targetRoot = category ? join(skillsDir, category) : skillsDir
+  const targetDir = resolve(join(targetRoot, skillName))
+  if (!isPathWithin(targetDir, skillsDir)) {
+    ctx.status = 400
+    ctx.body = { error: 'Resolved target path escapes skills directory' }
+    return
+  }
+
+  try {
+    const bundledManifest = readBundledManifest(await safeReadFile(join(skillsDir, '.bundled_manifest')))
+    const hubNames = readHubInstalledNames(await safeReadFile(join(skillsDir, '.hub', 'lock.json')))
+    if (bundledManifest.has(skillName) || hubNames.has(skillName)) {
+      ctx.status = 409
+      ctx.body = { error: `Skill "${skillName}" conflicts with a builtin or hub-managed skill` }
+      return
+    }
+    if (await pathExists(targetDir)) {
+      ctx.status = 409
+      ctx.body = { error: `Skill "${skillName}" already exists` }
+      return
+    }
+
+    const tree = await inspectSkillImportTree(sourceDir)
+    if (tree.files.length === 0) {
+      ctx.status = 400
+      ctx.body = { error: 'Skill directory is empty' }
+      return
+    }
+
+    const stagingRoot = join(targetRoot, `.skill-import-${randomBytes(6).toString('hex')}`)
+    const stagingSkillDir = join(stagingRoot, skillName)
+    try {
+      await mkdir(stagingSkillDir, { recursive: true })
+      await copySkillImportTree(sourceDir, stagingSkillDir, tree.files)
+      await rename(stagingSkillDir, targetDir)
+    } finally {
+      await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined)
+    }
+
+    ctx.body = { success: true, name: skillName }
+  } catch (err: any) {
+    ctx.status = Number.isInteger(err?.status) ? err.status : 500
+    ctx.body = { error: err?.message || 'Failed to import skill directory' }
   }
 }
 

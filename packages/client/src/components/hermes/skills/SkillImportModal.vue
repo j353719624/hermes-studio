@@ -2,8 +2,9 @@
 import { ref, computed } from 'vue'
 import { NModal, NUpload, NButton, NInput, NRadioGroup, NRadio, useMessage } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
-import { importSkill } from '@/api/hermes/skills'
+import { importSkill, importSkillFromPath } from '@/api/hermes/skills'
 import { useI18n } from 'vue-i18n'
+import { TrimApp } from '@trimjs/web-app'
 
 const emit = defineEmits<{
   close: []
@@ -18,17 +19,24 @@ const loading = ref(false)
 const mode = ref<'zip' | 'folder'>('folder')
 const zipFiles = ref<UploadFileInfo[]>([])
 const folderFiles = ref<File[]>([])
+const folderPath = ref('')
 const folderName = ref('')
 const category = ref('')
 const folderInputRef = ref<HTMLInputElement | null>(null)
+const trimApp = new TrimApp()
+const canPickFnosFolder = computed(() => trimApp.isWeb && !trimApp.isStandaloneWeb)
+const pickingFnosFolder = ref(false)
 
 const hasSelection = computed(() =>
-  mode.value === 'zip' ? zipFiles.value.length > 0 : folderFiles.value.length > 0
+  mode.value === 'zip'
+    ? zipFiles.value.length > 0
+    : canPickFnosFolder.value ? !!folderPath.value : folderFiles.value.length > 0,
 )
 
 function onModeChange() {
   zipFiles.value = []
   folderFiles.value = []
+  folderPath.value = ''
   folderName.value = ''
 }
 
@@ -43,6 +51,30 @@ function beforeUpload({ file }: { file: UploadFileInfo }) {
 
 function pickFolder() {
   folderInputRef.value?.click()
+}
+
+async function pickFnosFolder() {
+  if (!canPickFnosFolder.value || pickingFnosFolder.value) return
+  pickingFnosFolder.value = true
+  try {
+    await trimApp.ready()
+    const result = await trimApp.pickSharedFile({
+      title: t('skills.importSelectFnosFolder'),
+      okText: t('skills.importSelectFolder'),
+      sidebarGroup: ['myFiles', 'otherShare', 'external'],
+    })
+    const selected = Array.isArray(result?.data) ? String(result.data[0] || '').trim() : ''
+    if (selected) {
+      folderPath.value = selected
+      folderName.value = selected
+    } else if (result && result.code !== 0) {
+      message.error(result.msg || t('skills.importSelectFolderFailed'))
+    }
+  } catch {
+    message.error(t('skills.importSelectFolderFailed'))
+  } finally {
+    pickingFnosFolder.value = false
+  }
 }
 
 function onFolderSelected(e: Event) {
@@ -71,14 +103,20 @@ async function handleSave() {
   } else {
     files = folderFiles.value
   }
-  if (files.length === 0) {
+  if (canPickFnosFolder.value && mode.value === 'folder' && !folderPath.value) {
+    message.error(t('skills.importFailed'))
+    return
+  }
+  if (!(canPickFnosFolder.value && mode.value === 'folder') && files.length === 0) {
     message.error(t('skills.importFailed'))
     return
   }
 
   loading.value = true
   try {
-    const res = await importSkill(files, category.value.trim() || undefined)
+    const res = canPickFnosFolder.value && mode.value === 'folder'
+      ? await importSkillFromPath(folderPath.value, category.value.trim() || undefined)
+      : await importSkill(files, category.value.trim() || undefined)
     message.success(t('skills.importSuccess') + (res?.name ? `: ${res.name}` : ''))
     message.info(t('skills.reloadHint'), { duration: 6000 })
     emit('saved')
@@ -110,7 +148,7 @@ function handleClose() {
         <NRadio value="folder">{{ t('skills.importModeFolder') }}</NRadio>
         <NRadio value="zip">{{ t('skills.importModeZip') }}</NRadio>
       </NRadioGroup>
-      <p class="hint">{{ mode === 'zip' ? t('skills.importHintZip') : t('skills.importHintFolder') }}</p>
+      <p class="hint">{{ mode === 'zip' ? t('skills.importHintZip') : canPickFnosFolder ? t('skills.importHintFnosFolder') : t('skills.importHintFolder') }}</p>
     </div>
 
     <div class="form-row">
@@ -137,7 +175,11 @@ function handleClose() {
       </NUpload>
 
       <div v-else class="folder-picker">
+        <NButton v-if="canPickFnosFolder" :loading="pickingFnosFolder" :disabled="loading" @click="pickFnosFolder">
+          {{ t('skills.importSelectFnosFolder') }}
+        </NButton>
         <input
+          v-else
           ref="folderInputRef"
           type="file"
           webkitdirectory
@@ -145,7 +187,7 @@ function handleClose() {
           style="display: none"
           @change="onFolderSelected"
         />
-        <NButton :disabled="loading" @click="pickFolder">
+        <NButton v-if="!canPickFnosFolder" :disabled="loading" @click="pickFolder">
           {{ t('skills.importSelectFolder') }}
         </NButton>
         <span v-if="folderName" class="folder-info">

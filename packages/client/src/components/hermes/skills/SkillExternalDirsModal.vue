@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { NModal, NButton, NInput, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { fetchExternalDirs, saveExternalDirs, type ExternalDirEntry } from '@/api/hermes/skills'
+import { TrimApp } from '@trimjs/web-app'
 
 const emit = defineEmits<{
   close: []
@@ -22,6 +23,9 @@ const showModal = ref(true)
 const loading = ref(false)
 const initializing = ref(true)
 const rows = ref<Row[]>([])
+const trimApp = new TrimApp()
+const canPickFnosFolder = trimApp.isWeb && !trimApp.isStandaloneWeb
+const pickingIndex = ref<number | null>(null)
 
 function entryToRow(entry: ExternalDirEntry): Row {
   if (!entry.exists) return { raw: entry.raw, hint: 'missing' }
@@ -52,6 +56,30 @@ function onRowEdit(idx: number) {
   // The pre-existing existence hint no longer applies once the path is edited.
   // We don't re-validate live — server is the source of truth on next Save.
   if (rows.value[idx]) rows.value[idx].hint = null
+}
+
+async function pickDirectory(idx: number) {
+  if (!canPickFnosFolder || loading.value || pickingIndex.value !== null) return
+  pickingIndex.value = idx
+  try {
+    await trimApp.ready()
+    const result = await trimApp.pickSharedFile({
+      title: t('skills.externalDirs.selectTitle'),
+      okText: t('skills.externalDirs.select'),
+      sidebarGroup: ['myFiles', 'otherShare', 'external'],
+    })
+    const selected = Array.isArray(result?.data) ? String(result.data[0] || '').trim() : ''
+    if (selected && rows.value[idx]) {
+      rows.value[idx].raw = selected
+      rows.value[idx].hint = null
+    } else if (result && result.code !== 0) {
+      message.error(result.msg || t('skills.externalDirs.selectFailed'))
+    }
+  } catch {
+    message.error(t('skills.externalDirs.selectFailed'))
+  } finally {
+    pickingIndex.value = null
+  }
 }
 
 async function handleSave() {
@@ -94,7 +122,7 @@ function handleClose() {
     :mask-closable="!loading"
     @after-leave="emit('close')"
   >
-    <p class="hint">{{ t('skills.externalDirs.hint') }}</p>
+    <p class="hint">{{ canPickFnosFolder ? t('skills.externalDirs.fnosHint') : t('skills.externalDirs.hint') }}</p>
 
     <div v-if="initializing" class="state-row">{{ t('common.loading') }}</div>
     <div v-else-if="rows.length === 0" class="state-row empty">{{ t('skills.externalDirs.empty') }}</div>
@@ -107,8 +135,19 @@ function handleClose() {
             size="small"
             :placeholder="t('skills.externalDirs.placeholder')"
             :disabled="loading"
+            :readonly="canPickFnosFolder"
             @update:value="onRowEdit(idx)"
           />
+          <NButton
+            v-if="canPickFnosFolder"
+            size="small"
+            :loading="pickingIndex === idx"
+            :disabled="loading || pickingIndex !== null"
+            :title="t('skills.externalDirs.select')"
+            @click="pickDirectory(idx)"
+          >
+            📁
+          </NButton>
           <span v-if="row.hint === 'missing'" class="hint-tag broken">
             {{ t('skills.externalDirs.missing') }}
           </span>

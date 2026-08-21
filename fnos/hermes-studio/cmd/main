@@ -60,7 +60,7 @@ restore_previous_runtime() {
 start_process() {
   status && return 0
   rm -f "${PID_FILE}" "${SOCKET_PATH}" "${BRIDGE_SOCKET_PATH}"
-  mkdir -p "${LOG_DIR}" "${PKGTMP}" "${PKGHOME}" \
+  mkdir -p "${LOG_DIR}" "${PKGTMP}" "${PKGHOME}" "${PKGVAR}/browser" \
     "${PKGVAR}/studio" "${PKGVAR}/hermes" "${PKGVAR}/workspace" "${PKGVAR}/uploads" \
     "${CODING_AGENT_ROOT}/home" "${CODING_AGENT_ROOT}/npm"
   if ! validate_runtime; then
@@ -93,7 +93,7 @@ start_process() {
   export HERMES_AGENT_BRIDGE_KILL_STALE_IPC=1
   export HERMES_FNOS_RUNTIME_ROOT="${RUNTIME_ROOT}"
   export HERMES_FNOS_CMD_DIR="${SCRIPT_DIR}"
-  export AGENT_BROWSER_HOME="${PYTHON_ROOT}/agent-browser"
+  export AGENT_BROWSER_HOME="${PKGVAR}/browser"
   export PLAYWRIGHT_BROWSERS_PATH="${PYTHON_ROOT}/ms-playwright"
   export HERMES_HOME="${PKGVAR}/hermes"
   export HERMES_CODING_AGENT_GLOBAL_HOME="${CODING_AGENT_ROOT}/home"
