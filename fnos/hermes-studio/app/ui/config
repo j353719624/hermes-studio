@@ -1,7 +1,7 @@
 {
   ".url": {
     "hermes-studio.Application": {
-      "title": "Hermes Studio",
+      "title": "HStudio",
       "desc": "Hermes Studio 是面向 Hermes Agent 的应用、移动端伴侣与 Web 控制台。与智能体对话、搭建可视化工作流、管理模型和配置，并让工作在不同设备间保持连接。",
       "icon": "images/icon_{0}.png",
       "type": "iframe",

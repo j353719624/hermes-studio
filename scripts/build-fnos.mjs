@@ -20,6 +20,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import sharp from 'sharp'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const BUILD_ROOT = join(ROOT, 'build', 'fnos')
@@ -187,6 +188,25 @@ function buildWebUi() {
   }
 }
 
+async function writeFnosIcon(source, destination, size) {
+  const padding = Math.max(2, Math.round(size * 0.025))
+  await sharp(source)
+    .trim({
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+      threshold: 8,
+    })
+    .resize(size - padding * 2, size - padding * 2, { fit: 'contain' })
+    .extend({
+      top: padding,
+      bottom: padding,
+      left: padding,
+      right: padding,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toFile(destination)
+}
+
 function prepareLinuxNode(nodeArchive) {
   const nodeDir = join(CACHE_DIR, `node-v${CONFIG.node.version}-linux-x64`)
   const nodeBin = join(nodeDir, 'bin', 'node')
@@ -279,12 +299,11 @@ async function assembleStage(nodeBin, runtimeArchive) {
   copyFileSync(runtimeArchive, packagedRuntime)
   writeFileSync(`${packagedRuntime}.sha256`, `${CONFIG.hermesRuntime.sha256}  ${CONFIG.hermesRuntime.packageName}\n`)
 
-  const icon64 = join(ROOT, 'packages', 'desktop', 'build', 'icons', '64x64.png')
-  const icon256 = join(ROOT, 'packages', 'desktop', 'build', 'icons', '256x256.png')
-  copyFileSync(icon64, join(STAGE_DIR, 'ICON.PNG'))
-  copyFileSync(icon256, join(STAGE_DIR, 'ICON_256.PNG'))
-  copyFileSync(icon64, join(imagesDir, 'icon_64.png'))
-  copyFileSync(icon256, join(imagesDir, 'icon_256.png'))
+  const iconSource = join(ROOT, 'packages', 'desktop', 'build', 'icon.png')
+  await writeFnosIcon(iconSource, join(STAGE_DIR, 'ICON.PNG'), 64)
+  await writeFnosIcon(iconSource, join(STAGE_DIR, 'ICON_256.PNG'), 256)
+  await writeFnosIcon(iconSource, join(imagesDir, 'icon_64.png'), 64)
+  await writeFnosIcon(iconSource, join(imagesDir, 'icon_256.png'), 256)
 
   const blob = join(CACHE_DIR, 'hermes-studio.blob')
   rmSync(blob, { force: true })
