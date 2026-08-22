@@ -271,6 +271,17 @@ function prepareNativeModules(nodeDir, nodeBin) {
     "const s=require('sharp');s({create:{width:2,height:2,channels:4,background:'#204060'}}).png().toBuffer().then(b=>{if(!b.length)process.exit(2);console.log('[fnOS] Linux Sharp '+s.versions.sharp+' / libvips '+s.versions.vips)}).catch(e=>{console.error(e);process.exit(1)})",
   ], { cwd: toWslPath(NATIVE_DIR) })
 
+  const sherpaDir = join(NATIVE_DIR, 'node_modules', 'sherpa-onnx-node')
+  const sherpaLinuxPackageDir = join(NATIVE_DIR, 'node_modules', 'sherpa-onnx-linux-x64')
+  if (!existsSync(sherpaDir) || !existsSync(sherpaLinuxPackageDir)) {
+    throw new Error('Linux sherpa-onnx-node 依赖缺失')
+  }
+  runWsl([
+    toWslPath(nodeBin),
+    '-e',
+    "const s=require('sherpa-onnx-node');if(!s||typeof s.readWave!=='function')throw new Error('sherpa-onnx-node API unavailable');console.log('[fnOS] sherpa-onnx-node OK')",
+  ], { cwd: toWslPath(NATIVE_DIR) })
+
   const nodePtyDir = join(NATIVE_DIR, 'node_modules', 'node-pty')
   rmSync(join(nodePtyDir, 'deps', 'winpty'), { recursive: true, force: true })
   rmSync(join(nodePtyDir, 'third_party', 'conpty'), { recursive: true, force: true })
@@ -379,6 +390,7 @@ async function assembleStage(nodeBin, runtimeArchive) {
       nodePty: '1.1.0',
       sharp: '0.35.3',
       socketIo: '4.8.3',
+      sherpaOnnxNode: '1.13.3',
       platform: 'linux-x64',
     },
     browser: {

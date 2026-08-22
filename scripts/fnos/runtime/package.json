@@ -1,10 +1,22 @@
 {
   "name": "hermes-studio-fnos-native-runtime",
   "private": true,
-  "version": "0.6.44",
+  "version": "0.6.45",
   "dependencies": {
     "node-pty": "1.1.0",
     "sharp": "0.35.3",
-    "socket.io": "4.8.3"
+    "socket.io": "4.8.3",
+    "sherpa-onnx-node": "1.13.3"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-linux-x64": "1.13.3"
+  },
+  "overrides": {
+    "sherpa-onnx-darwin-arm64": "1.13.3",
+    "sherpa-onnx-darwin-x64": "1.13.3",
+    "sherpa-onnx-linux-arm64": "1.13.3",
+    "sherpa-onnx-linux-x64": "1.13.3",
+    "sherpa-onnx-win-ia32": "1.13.3",
+    "sherpa-onnx-win-x64": "1.13.3"
   }
 }
