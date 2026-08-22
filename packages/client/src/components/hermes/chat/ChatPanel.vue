@@ -70,7 +70,6 @@ const props = withDefaults(defineProps<{
 
 const FilesPanel = defineAsyncComponent(async () => (await import('./FilesPanel.vue')).default);
 const ConnectionsPanel = defineAsyncComponent(async () => (await import('@/components/hermes/connections/ConnectionsPanel.vue')).default);
-const FilePreview = defineAsyncComponent(async () => (await import('@/components/hermes/files/FilePreview.vue')).default);
 const WorkspaceDiffPreview = defineAsyncComponent(async () => (await import('@/components/hermes/files/WorkspaceDiffPreview.vue')).default);
 const DesktopBrowserPanel = defineAsyncComponent(async () => (await import('./DesktopBrowserPanel.vue')).default);
 
@@ -501,6 +500,7 @@ watch(
   (previewFile) => {
     if (previewFile) {
       selectedSubagent.value = null;
+      activeToolPanel.value = "files";
       showToolPanel.value = true;
     }
   },
@@ -2893,10 +2893,6 @@ async function handleSessionModelCustomSubmit() {
               <div class="chat-tool-panel-inner">
                 <WorkspaceDiffPreview
                   v-if="toolPanelStore.workspaceDiff"
-                  :custom-close="closeToolPanelOverlay"
-                />
-                <FilePreview
-                  v-else-if="filesStore.previewFile"
                   :custom-close="closeToolPanelOverlay"
                 />
                 <SubagentStreamPanel
