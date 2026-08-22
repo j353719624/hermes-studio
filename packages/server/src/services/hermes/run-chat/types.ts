@@ -1,4 +1,24 @@
 import type { ChatMessage } from '../../../lib/context-compressor'
+import type { EkkoBackgroundContinuationContext } from '../../../../../ekko-agent/src'
+
+export interface HermesBackgroundContinuationContext {
+  runtime: 'hermes'
+  version: 1
+  delegationId: string
+  sessionId: string
+  originRunId: string
+  messages: ChatMessage[]
+  model?: string
+  provider?: string
+  profile: string
+  instructions?: string
+  workspace?: string | null
+  reasoningEffort?: string
+}
+
+export type BackgroundContinuationContext =
+  | ({ runtime: 'ekko' } & EkkoBackgroundContinuationContext)
+  | HermesBackgroundContinuationContext
 
 /**
  * Content block types for Anthropic-compatible message format
@@ -16,6 +36,7 @@ export interface SessionMessage {
   display_role?: string | null
   display_content?: string | null
   runMarker?: string
+  run_marker?: string | null
   tool_call_id?: string | null
   tool_calls?: any[] | null
   tool_name?: string | null
@@ -64,6 +85,8 @@ export interface QueuedRun {
   reasoningEffort?: string
   backgroundDelegationId?: string
   backgroundClaimId?: string
+  /** Internal-only origin history for a background callback. Never accepted from socket input. */
+  backgroundContinuationContext?: BackgroundContinuationContext
   autonomous?: boolean
 }
 
@@ -134,6 +157,8 @@ export interface SessionState {
   bridgeCompressionResults?: Record<string, BridgeCompressionResult>
   backgroundTasks?: Record<string, Record<string, unknown>>
   backgroundDelegations?: Record<string, BackgroundDelegationState>
+  /** Process-local by design; callbacks after a Studio restart are rejected instead of using live history. */
+  backgroundContinuationContexts?: Record<string, BackgroundContinuationContext>
 }
 
 export interface ResponseRunState {

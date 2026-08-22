@@ -32,8 +32,10 @@ const { toolTraceVisible, toggleToolTraceVisible } = useToolTraceVisibility()
 
 const props = withDefaults(defineProps<{
   modelLabel?: string
+  modelDisabled?: boolean
 }>(), {
   modelLabel: '',
+  modelDisabled: false,
 })
 
 const emit = defineEmits<{
@@ -94,6 +96,7 @@ function onReasoningEffortSliderChange(value: number | [number, number]) {
 }
 
 function handleModelButtonClick() {
+  if (props.modelDisabled) return
   emit('modelClick')
 }
 
@@ -1307,6 +1310,7 @@ function isImage(type: string): boolean {
                 quaternary
                 size="tiny"
                 class="input-model-button"
+                :disabled="props.modelDisabled"
                 :title="isMobileViewport ? undefined : props.modelLabel || t('models.selectModel')"
                 :aria-label="props.modelLabel || t('models.selectModel')"
                 @click="handleModelButtonClick"
