@@ -8,6 +8,7 @@ import { fnosTrimApp, pickFnosSharedFolder } from '@/utils/fnos-folder-picker'
 
 interface FolderEntry {
   name: string
+  displayName?: string
   path: string
   fullPath: string
   readonly?: boolean
@@ -16,6 +17,7 @@ interface FolderEntry {
 interface FolderListResponse {
   base: string
   current: string
+  roots?: FolderEntry[]
   folders: FolderEntry[]
 }
 
@@ -164,6 +166,10 @@ async function toggleExpand(folder: FolderEntry) {
 
 function selectFolder(folder: FolderEntry) {
   updateSelectedPath(folder.fullPath)
+}
+
+function folderLabel(folder: FolderEntry) {
+  return folder.displayName || folder.name
 }
 
 function selectBase() {
@@ -380,13 +386,14 @@ const flatNodes = computed<FlatNode[]>(() => {
         :style="{ paddingLeft: `${12 + node.depth * 16}px` }"
         @click="selectFolder(node.folder)"
         @contextmenu="showContextMenu($event, node.folder)"
+        :title="node.folder.fullPath"
       >
         <span class="folder-expand" @click.stop="toggleExpand(node.folder)">
           <template v-if="node.isLoading">⏳</template>
           <template v-else>{{ node.isExpanded ? '▼' : '▶' }}</template>
         </span>
         <span class="folder-icon">📁</span>
-        <span class="folder-name">{{ node.folder.name }}</span>
+        <span class="folder-name">{{ folderLabel(node.folder) }}</span>
       </div>
 
       <!-- Empty children indicator for expanded folders with no children -->

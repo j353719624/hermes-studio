@@ -35,6 +35,20 @@ async function allowedWorkspaceRoots(base: string): Promise<string[]> {
   ])]
 }
 
+/**
+ * Return the roots that may be shown by the workspace picker.
+ *
+ * fnOS keeps the application workspace private, while directories selected
+ * through the host are added to the same allow-list. The picker must use this
+ * list instead of exposing the application's internal data path as its only
+ * visible root.
+ */
+export async function listAllowedWorkspaceRoots(): Promise<string[]> {
+  const base = resolve(workspaceBaseOverride() || homedir())
+  const roots = await allowedWorkspaceRoots(base)
+  return [...new Set(roots)].filter(root => existsSync(root))
+}
+
 function windowsDriveRoot(pathValue: string): string | null {
   const match = /^([a-zA-Z]:)[\\/]?$/.exec(pathValue.trim())
   return match ? `${match[1].toUpperCase()}\\` : null

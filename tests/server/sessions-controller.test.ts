@@ -532,6 +532,47 @@ describe('session conversations controller', () => {
     }
   })
 
+  it('lists fnOS workspace roots without exposing the application data path as the base row', async () => {
+    const originalFnosMode = process.env.HERMES_FNOS_MODE
+    const originalWorkspaceBase = process.env.WORKSPACE_BASE
+    const workspaceBase = await mkdtemp(join(tmpdir(), 'hermes-fnos-workspace-picker-'))
+    await mkdir(join(workspaceBase, 'project'), { recursive: true })
+
+    process.env.HERMES_FNOS_MODE = '1'
+    process.env.WORKSPACE_BASE = workspaceBase
+
+    try {
+      const mod = await import('../../packages/server/src/controllers/hermes/sessions')
+      const rootCtx: any = { query: {}, body: null }
+
+      await mod.listWorkspaceFolders(rootCtx)
+
+      expect(rootCtx.body.base).toBe('')
+      expect(rootCtx.body.folders).toEqual([
+        expect.objectContaining({
+          path: workspaceBase,
+          fullPath: workspaceBase,
+          readonly: true,
+        }),
+      ])
+
+      const workspaceCtx: any = { query: { path: workspaceBase }, body: null }
+      await mod.listWorkspaceFolders(workspaceCtx)
+
+      expect(workspaceCtx.body).toMatchObject({
+        base: workspaceBase,
+        current: workspaceBase,
+        folders: [{ name: 'project', path: join(workspaceBase, 'project'), fullPath: join(workspaceBase, 'project') }],
+      })
+    } finally {
+      await rm(workspaceBase, { recursive: true, force: true })
+      if (originalFnosMode === undefined) delete process.env.HERMES_FNOS_MODE
+      else process.env.HERMES_FNOS_MODE = originalFnosMode
+      if (originalWorkspaceBase === undefined) delete process.env.WORKSPACE_BASE
+      else process.env.WORKSPACE_BASE = originalWorkspaceBase
+    }
+  })
+
   it('blocks Windows junction-like workspace folders that escape WORKSPACE_BASE', async () => {
     const originalPlatform = process.platform
     const originalWorkspaceBase = process.env.WORKSPACE_BASE

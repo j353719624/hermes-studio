@@ -34,7 +34,9 @@ import { isNearestExistingRealPathWithin, isPathWithin, relativePathFromBase } f
 import {
   assertAllowedWorkspaceFolder,
   isWorkspaceListPathAllowed,
+  listAllowedWorkspaceRoots,
   normalizeWindowsWorkspacePath,
+  resolveAllowedWorkspaceFolder,
   useWindowsDriveWorkspaceMode,
   workspaceBaseOverride,
 } from '../../services/hermes/workspace-path'
@@ -1618,6 +1620,31 @@ async function listWindowsWorkspaceDrives() {
   return drives
 }
 
+function fnosRootDisplayName(root: string, roots: string[]): string {
+  const volume = root.match(/^\/(vol[^/]+)(?:\/|$)/)?.[1]
+  if (!volume) return root
+
+  const sameVolume = roots.filter(value => value.match(/^\/(vol[^/]+)(?:\/|$)/)?.[1] === volume)
+  if (sameVolume.length <= 1) return `/${volume}`
+
+  const index = sameVolume.indexOf(root) + 1
+  return `/${volume} (${index})`
+}
+
+async function listFnosWorkspaceRoots(statFn: any) {
+  const roots = await listAllowedWorkspaceRoots()
+  return (await Promise.all(roots.map(async root => {
+    if (!await isWorkspaceListPathAllowed(root, root, statFn)) return null
+    return {
+      name: fnosRootDisplayName(root, roots),
+      displayName: fnosRootDisplayName(root, roots),
+      path: root,
+      fullPath: root,
+      readonly: true,
+    }
+  }))).filter(Boolean)
+}
+
 async function isSafeWorkspaceFolderEntry(entry: any, fullPath: string, basePath: string, statFn: any, options?: { trustWindowsJunctions?: boolean }): Promise<boolean> {
   if (!entry.isDirectory() && !(typeof entry.isSymbolicLink === 'function' && entry.isSymbolicLink())) {
     return false
@@ -1690,6 +1717,55 @@ export async function listWorkspaceFolders(ctx: any) {
     return
   }
 
+  // fnOS exposes only the application workspace and directories that have
+  // been granted to this app. Present those as root nodes, like drive roots
+  // on Windows, instead of showing the internal app-data path as the tree
+  // root. Absolute child paths remain subject to the same allow-list and
+  // real-path checks as every other workspace request.
+  if (process.env.HERMES_FNOS_MODE === '1') {
+    if (!subPath) {
+      const roots = await listFnosWorkspaceRoots(stat)
+      ctx.body = { base: '', current: '', roots, folders: roots }
+      return
+    }
+
+    const resolved = await resolveAllowedWorkspaceFolder(subPath)
+    if (!resolved) {
+      ctx.status = 403
+      ctx.body = { error: 'Access denied' }
+      return
+    }
+
+    if (!existsSync(resolved.fullPath)) {
+      ctx.status = 404
+      ctx.body = { error: 'Path not found', folders: [] }
+      return
+    }
+
+    if (!await isWorkspaceListPathAllowed(resolved.fullPath, resolved.base, stat)) {
+      ctx.status = 403
+      ctx.body = { error: 'Access denied' }
+      return
+    }
+
+    try {
+      const entries = await readdir(resolved.fullPath, { withFileTypes: true })
+      const folders = (await Promise.all(entries.map(async entry => {
+        const fullPath = resolve(resolved.fullPath, entry.name)
+        if (!await isSafeWorkspaceFolderEntry(entry, fullPath, resolved.base, stat)) return null
+        return { name: entry.name, path: fullPath, fullPath }
+      })))
+        .filter((entry): entry is { name: string; path: string; fullPath: string } => !!entry)
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      ctx.body = { base: resolved.base, current: resolved.fullPath, folders }
+    } catch (err: any) {
+      ctx.status = 500
+      ctx.body = { error: err.message }
+    }
+    return
+  }
+
   const WORKSPACE_BASE = workspaceBaseOverride() || homedir()
 
   // Security: prevent path traversal
@@ -1747,6 +1823,17 @@ async function resolveWorkspaceFolderPath(ctx: any, inputPath: string) {
   const { homedir } = await import('os')
   if (useWindowsDriveWorkspaceMode()) {
     const resolved = normalizeWindowsWorkspacePath(inputPath)
+    if (!resolved) {
+      ctx.status = 403
+      ctx.body = { error: 'Access denied' }
+      return null
+    }
+    return resolved
+  }
+
+  if (process.env.HERMES_FNOS_MODE === '1') {
+    const rawPath = String(inputPath || '').trim() || workspaceBaseOverride() || homedir()
+    const resolved = await resolveAllowedWorkspaceFolder(rawPath)
     if (!resolved) {
       ctx.status = 403
       ctx.body = { error: 'Access denied' }
