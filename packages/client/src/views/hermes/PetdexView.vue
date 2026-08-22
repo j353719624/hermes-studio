@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { fetchPetdexManifest, type PetdexManifest, type PetdexPet } from '@/api/hermes/petdex'
 import { usePetsStore } from '@/stores/hermes/pets'
 import { desktopBridge } from '@/utils/desktop-bridge'
+import { getPublicAssetUrl } from '@/utils/public-asset'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -78,6 +79,10 @@ function assetLinks(pet: PetdexPet) {
   ]
 }
 
+function previewUrl(pet: PetdexPet): string {
+  return getPublicAssetUrl(pet.previewUrl || pet.spritesheetUrl)
+}
+
 async function adopt(pet: PetdexPet) {
   adoptingSlug.value = pet.slug
   try {
@@ -147,7 +152,7 @@ onMounted(() => {
         <div v-if="visiblePets.length" class="pet-grid">
           <article v-for="pet in visiblePets" :key="pet.slug" class="pet-card">
             <div class="pet-preview">
-              <div class="pet-frame" :style="{ backgroundImage: `url(${pet.previewUrl || pet.spritesheetUrl})` }" />
+              <div class="pet-frame" :style="{ backgroundImage: `url(${previewUrl(pet)})` }" />
             </div>
             <div class="pet-body">
               <div class="pet-title-row">
