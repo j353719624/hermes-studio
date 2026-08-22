@@ -1,12 +1,22 @@
 import { config } from '../../config'
 import { getLanEndpointKind } from '../lan-discovery'
-import { getDeviceIdentity, getPublicSystemInfo } from '../system-info'
+import {
+  createAppRelayDeviceSignature,
+  getAppRelayDeviceIdentity,
+  getPublicSystemInfo,
+} from '../system-info'
 import {
   getAppRelayClient,
   startAppRelayClient,
   stopAppRelayClient,
   type AppRelayClient,
 } from './client'
+import {
+  appRelayUrlForRoute,
+  getAppRelayRoute,
+  setAppRelayRoute,
+  type AppRelayRoute,
+} from './route'
 
 export const APP_RELAY_CONNECTION_ID = 'app-relay'
 
@@ -16,20 +26,25 @@ export function shouldReplaceExistingAppRelayHost(
   return environment.NODE_ENV === 'production'
 }
 
-export async function ensureAppRelayHostClient(): Promise<AppRelayClient | null> {
+export async function ensureAppRelayHostClient(requestedRoute?: AppRelayRoute): Promise<AppRelayClient | null> {
+  const route = requestedRoute || await getAppRelayRoute()
+  if (requestedRoute) await setAppRelayRoute(requestedRoute)
+  const relayUrl = appRelayUrlForRoute(route)
   const existing = getAppRelayClient(APP_RELAY_CONNECTION_ID)
-  if (existing && !existing.isPreconnectionExpired()) return existing
+  if (existing && existing.usesRelayUrl(relayUrl) && !existing.isPreconnectionExpired()) return existing
   if (existing) stopAppRelayHostClient()
-  const [identity, info] = await Promise.all([getDeviceIdentity(), getPublicSystemInfo()])
+  const [identity, info] = await Promise.all([getAppRelayDeviceIdentity(), getPublicSystemInfo()])
   const localEndpoint = getLocalRelayEndpoint()
   return startAppRelayClient({
     connectionId: APP_RELAY_CONNECTION_ID,
-    relayUrl: config.appRelay.url,
+    relayUrl,
     machineId: identity.device_id,
     publicKey: identity.device_public_key,
+    signChallenge: createAppRelayDeviceSignature,
     replaceExistingHost: shouldReplaceExistingAppRelayHost(),
     machineInfo: {
       ...info,
+      device_id: identity.device_id,
       http_port: localEndpoint.port,
       endpoint_kind: getLanEndpointKind(localEndpoint.port),
     },
