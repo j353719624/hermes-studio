@@ -748,6 +748,9 @@ export default {
       created: 'Bundle 已创建',
     },
     attachFiles: '添加附件',
+    attachLocalFiles: '选择本机文件',
+    attachFnosFiles: '选择飞牛文件',
+    attachConfirm: '添加附件',
     reasoningEffort: {
       tooltip: '推理强度',
       dragHint: '拖动选择 · 共 {count} 档',

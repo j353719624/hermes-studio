@@ -13,6 +13,7 @@ import { desktopBridge } from '@/utils/desktop-bridge'
 import { naiveLocaleFor } from '@/constants/naiveLocale'
 import { naiveRtlFor } from '@/constants/naiveRtl'
 import { getPublicAssetUrl } from '@/utils/public-asset'
+import { fnosTrimApp } from '@/utils/fnos-folder-picker'
 
 const AppSidebar = defineAsyncComponent(async () => (await import('@/components/layout/AppSidebar.vue')).default)
 const DesktopTitleBar = defineAsyncComponent(async () => (await import('@/components/layout/DesktopTitleBar.vue')).default)
@@ -92,6 +93,8 @@ watch([isLoginPage, isInviteOnlyPage], ([loginPage, inviteOnlyPage]) => {
 })
 
 onMounted(() => {
+  // Warm up the fnOS host bridge before a directory picker is first opened.
+  void fnosTrimApp.ready().catch(() => undefined)
   if (!isInviteOnlyPage.value) {
     void syncThemeFromServer().catch(() => undefined)
   }

@@ -296,6 +296,21 @@ async function assembleStage(nodeBin, runtimeArchive) {
   mkdirSync(imagesDir, { recursive: true })
   cpSync(join(ROOT, 'dist'), join(appDir, 'dist'), { recursive: true })
   rmSync(join(appDir, 'dist', 'server', 'index.js.map'), { force: true })
+  // trim-cli is a multi-platform skill in the source tree. The fnOS package
+  // must contain only Linux runtime assets; Windows/macOS files are kept for
+  // the desktop build and are removed from this Linux staging tree.
+  const trimCliDir = join(appDir, 'dist', 'skills', 'trim-cli')
+  for (const fileName of [
+    'trim-cli-darwin-arm64',
+    'trim-cli-darwin-x64',
+    'trim-cli-windows-arm64.exe',
+    'trim-cli-windows-x64.exe',
+  ]) {
+    rmSync(join(trimCliDir, 'bin', fileName), { force: true })
+  }
+  for (const fileName of ['trim-cli.cmd', 'trim-cli.ps1']) {
+    rmSync(join(trimCliDir, 'scripts', fileName), { force: true })
+  }
   cpSync(join(NATIVE_DIR, 'node_modules'), join(appDir, 'node_modules'), { recursive: true })
   rmSync(join(appDir, 'node_modules', '.bin'), { recursive: true, force: true })
   copyFileSync(join(ROOT, 'bin', 'hermes-studio-mcp.mjs'), join(binDir, 'hermes-studio-mcp.mjs'))

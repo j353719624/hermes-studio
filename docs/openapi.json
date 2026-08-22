@@ -1530,6 +1530,12 @@
                   "device_public_key": {
                     "type": "string"
                   },
+                  "deviceId": {
+                    "type": "string"
+                  },
+                  "devicePublicKey": {
+                    "type": "string"
+                  },
                   "nonce": {
                     "type": "string"
                   },
@@ -2870,6 +2876,18 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              }
+            }
           }
         }
       }

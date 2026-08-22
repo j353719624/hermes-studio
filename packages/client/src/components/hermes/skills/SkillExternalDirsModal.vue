@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { NModal, NButton, NInput, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { fetchExternalDirs, saveExternalDirs, type ExternalDirEntry } from '@/api/hermes/skills'
-import { TrimApp } from '@trimjs/web-app'
+import { fnosTrimApp, pickFnosSharedFolder } from '@/utils/fnos-folder-picker'
 
 const emit = defineEmits<{
   close: []
@@ -23,7 +23,7 @@ const showModal = ref(true)
 const loading = ref(false)
 const initializing = ref(true)
 const rows = ref<Row[]>([])
-const trimApp = new TrimApp()
+const trimApp = fnosTrimApp
 const canPickFnosFolder = trimApp.isWeb && !trimApp.isStandaloneWeb
 const pickingIndex = ref<number | null>(null)
 
@@ -34,6 +34,7 @@ function entryToRow(entry: ExternalDirEntry): Row {
 }
 
 onMounted(async () => {
+  if (canPickFnosFolder) void trimApp.ready().catch(() => undefined)
   try {
     const entries = await fetchExternalDirs()
     rows.value = entries.map(entryToRow)
@@ -62,21 +63,18 @@ async function pickDirectory(idx: number) {
   if (!canPickFnosFolder || loading.value || pickingIndex.value !== null) return
   pickingIndex.value = idx
   try {
-    await trimApp.ready()
-    const result = await trimApp.pickSharedFile({
+    const selected = await pickFnosSharedFolder(trimApp, {
       title: t('skills.externalDirs.selectTitle'),
       okText: t('skills.externalDirs.select'),
       sidebarGroup: ['myFiles', 'otherShare', 'external'],
     })
-    const selected = Array.isArray(result?.data) ? String(result.data[0] || '').trim() : ''
     if (selected && rows.value[idx]) {
       rows.value[idx].raw = selected
       rows.value[idx].hint = null
-    } else if (result && result.code !== 0) {
-      message.error(result.msg || t('skills.externalDirs.selectFailed'))
     }
-  } catch {
-    message.error(t('skills.externalDirs.selectFailed'))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : ''
+    message.error(detail || t('skills.externalDirs.selectFailed'))
   } finally {
     pickingIndex.value = null
   }
@@ -135,7 +133,6 @@ function handleClose() {
             size="small"
             :placeholder="t('skills.externalDirs.placeholder')"
             :disabled="loading"
-            :readonly="canPickFnosFolder"
             @update:value="onRowEdit(idx)"
           />
           <NButton

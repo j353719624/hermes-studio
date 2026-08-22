@@ -1,5 +1,3 @@
-import router from '@/router'
-
 const BUILD_BASE_PATH = import.meta.env.BASE_URL === '/'
   ? ''
   : import.meta.env.BASE_URL.replace(/\/$/, '')
@@ -89,6 +87,13 @@ export function clearApiKey() {
 function clearAuthSessionState() {
   clearApiKey()
   localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY)
+}
+
+async function redirectToLogin() {
+  const { default: router } = await import('@/router')
+  if (router.currentRoute.value.name !== 'login') {
+    await router.replace({ name: 'login' })
+  }
 }
 
 export function hasApiKey(): boolean {
@@ -251,9 +256,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   if (res.status === 401 && isLocalBff) {
     clearAuthSessionState()
     emitAuthNotice('expired')
-    if (router.currentRoute.value.name !== 'login') {
-      router.replace({ name: 'login' })
-    }
+    void redirectToLogin()
     throw new Error('Unauthorized')
   }
 
@@ -263,9 +266,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       if (text.includes('User is disabled or does not exist')) {
         clearAuthSessionState()
         emitAuthNotice('expired')
-        if (router.currentRoute.value.name !== 'login') {
-          router.replace({ name: 'login' })
-        }
+        void redirectToLogin()
       } else {
         emitAuthNotice('forbidden')
       }

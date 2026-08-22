@@ -31,18 +31,14 @@ async function waitForRun(page: Page, index = 0) {
 }
 
 function readLiveReasoningStyles(status: Element) {
-  const avatar = status.querySelector<HTMLElement>('.thinking-avatar')!
   const label = status.querySelector<HTMLElement>('.thinking-status-label')!
   const statusStyle = getComputedStyle(status)
-  const avatarStyle = getComputedStyle(avatar)
   const labelStyle = getComputedStyle(label)
   return {
     statusBackground: statusStyle.backgroundImage,
     statusShadow: statusStyle.boxShadow,
     statusPadding: statusStyle.padding,
-    avatarWidth: avatarStyle.width,
-    avatarHeight: avatarStyle.height,
-    avatarRadius: avatarStyle.borderRadius,
+    avatarCount: status.querySelectorAll('.thinking-avatar').length,
     labelFontSize: labelStyle.fontSize,
     labelFontWeight: labelStyle.fontWeight,
     labelAnimation: labelStyle.animationName,
@@ -303,7 +299,7 @@ test('shows one real subagent card and opens its live chat stream in the resizab
   const panel = page.locator('.subagent-stream-panel')
   await expect(panel).toBeVisible()
   await expect(panel).toContainText('Research the latest technology news')
-  await expect(panel.locator('.subagent-run-indicator .thinking-avatar')).toBeVisible()
+  await expect(panel.locator('.subagent-run-indicator .thinking-avatar')).toHaveCount(0)
   await expect(panel.locator('.subagent-run-indicator .live-reasoning-detail')).toContainText('Inspecting sources before searching.')
   await expect(panel.locator('.subagent-live-tool')).toContainText('search_web')
   await expect(panel.getByText('Waiting for live output...')).toHaveCount(0)
@@ -316,8 +312,7 @@ test('shows one real subagent card and opens its live chat stream in the resizab
     statusBackground: 'none',
     statusShadow: 'none',
     statusPadding: '0px',
-    avatarWidth: '40px',
-    avatarHeight: '40px',
+    avatarCount: 0,
   })
   expect(subagentThinkingStyles.labelAnimation).not.toBe('none')
   const reasoningDetailStyle = await panel.locator('.live-reasoning-detail').evaluate((detail) => {

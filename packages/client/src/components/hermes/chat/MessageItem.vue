@@ -51,7 +51,7 @@ const props = defineProps<{
 }>();
 const { t } = useI18n();
 const toast = useMessage();
-const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== "1";
+const showReasoningUi = true;
 
 const isSystem = computed(() => props.message.role === "system");
 const isAgentError = computed(() => props.message.role === "assistant" && props.message.systemType === "error");

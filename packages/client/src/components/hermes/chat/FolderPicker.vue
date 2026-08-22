@@ -4,7 +4,7 @@ import { NButton, NDropdown, NInput, NModal, NSpace, NSpin, useDialog, useMessag
 import { useI18n } from 'vue-i18n'
 import { request } from '@/api/client'
 import { copyToClipboard } from '@/utils/clipboard'
-import { TrimApp } from '@trimjs/web-app'
+import { fnosTrimApp, pickFnosSharedFolder } from '@/utils/fnos-folder-picker'
 
 interface FolderEntry {
   name: string
@@ -44,7 +44,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const dialog = useDialog()
 const message = useMessage()
-const trimApp = new TrimApp()
+const trimApp = fnosTrimApp
 const canPickFnosFolder = computed(() => trimApp.isWeb && !trimApp.isStandaloneWeb)
 const loading = ref(false)
 const basePath = ref('')
@@ -76,20 +76,17 @@ async function pickFnosFolder() {
   if (!canPickFnosFolder.value || pickingFnosFolder.value) return
   pickingFnosFolder.value = true
   try {
-    await trimApp.ready()
-    const result = await trimApp.pickSharedFile({
+    const selected = await pickFnosSharedFolder(trimApp, {
       title: t('chat.folderPickerSelectFnos'),
       okText: t('chat.folderPickerSelect'),
       sidebarGroup: ['myFiles', 'otherShare', 'external'],
     })
-    const selected = Array.isArray(result?.data) ? String(result.data[0] || '').trim() : ''
     if (selected) {
       updateSelectedPath(selected)
-    } else if (result && result.code !== 0) {
-      message.error(result.msg || t('chat.folderPickerSelectFailed'))
     }
-  } catch {
-    message.error(t('chat.folderPickerSelectFailed'))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : ''
+    message.error(detail || t('chat.folderPickerSelectFailed'))
   } finally {
     pickingFnosFolder.value = false
   }
@@ -136,6 +133,9 @@ async function refreshFolderList(subPath = '') {
 }
 
 onMounted(async () => {
+  // Establish the fnOS host bridge while the picker is rendering so the
+  // directory dialog does not pay the connection handshake on first click.
+  if (canPickFnosFolder.value) void trimApp.ready().catch(() => undefined)
   loading.value = true
   await refreshFolderList()
   loading.value = false

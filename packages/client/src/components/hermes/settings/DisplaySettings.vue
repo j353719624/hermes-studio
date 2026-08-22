@@ -12,7 +12,7 @@ import SettingRow from './SettingRow.vue'
 const settingsStore = useSettingsStore()
 const message = useMessage()
 const { t } = useI18n()
-const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== '1'
+const showReasoningUi = true
 const chatInputHeight = computed(() => clampChatInputHeight(settingsStore.display.chat_input_height))
 
 async function save(values: Record<string, any>) {

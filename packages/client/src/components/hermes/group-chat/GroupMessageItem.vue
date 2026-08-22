@@ -63,7 +63,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useMessage()
-const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== '1'
+const showReasoningUi = true
 const groupChatStore = useGroupChatStore()
 const filesStore = useFilesStore()
 const toolPanelStore = useToolPanelStore()

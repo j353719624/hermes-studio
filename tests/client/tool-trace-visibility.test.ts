@@ -108,7 +108,7 @@ describe('tool trace visibility', () => {
     expect(wrapper.findAll('.stub-message')).toHaveLength(0)
   })
 
-  it('hides named transcript traces when the toggle is off while keeping live tool stream visible', () => {
+  it('hides both persisted and live tool traces when the toggle is off', () => {
     useToolTraceVisibility().setToolTraceVisible(false)
 
     const liveWrapper = mountLiveList()
@@ -116,7 +116,7 @@ describe('tool trace visibility', () => {
       'user-1',
       'assistant-1',
     ])
-    expect(liveWrapper.findAll('.tool-call-name').map(node => node.text())).toContain('read_file')
+    expect(liveWrapper.findAll('.tool-call-name').map(node => node.text())).not.toContain('read_file')
 
     const historyWrapper = mount(HistoryMessageList, {
       props: { session: makeSession(sampleMessages) },

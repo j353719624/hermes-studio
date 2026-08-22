@@ -16,6 +16,7 @@ import { NButton, NInput } from "naive-ui";
 import VirtualMessageList from "./VirtualMessageList.vue";
 import MessageItem from "./MessageItem.vue";
 import LiveReasoningStatus from "./LiveReasoningStatus.vue";
+import MarkdownRenderer from "./MarkdownRenderer.vue";
 import MessageQueueFloatPanel from "./MessageQueueFloatPanel.vue";
 import { LIVE_CHAT_MAX_LOADED_MESSAGES, parseMessageReference, useChatStore, type Message } from "@/stores/hermes/chat";
 import { useToolTraceVisibility } from "@/composables/useToolTraceVisibility";
@@ -34,7 +35,7 @@ const props = withDefaults(defineProps<{
 const chatStore = useChatStore();
 const { t } = useI18n();
 const { toolTraceVisible } = useToolTraceVisibility();
-const showReasoningUi = import.meta.env.VITE_HERMES_FNOS_MODE !== "1";
+const showReasoningUi = true;
 const listRef = ref<InstanceType<typeof VirtualMessageList> | null>(null);
 const pendingInitialScrollKey = ref<string | null>(null);
 const showScrollBottomButton = ref(false);
@@ -127,7 +128,9 @@ const currentToolCalls = computed(() => {
 });
 
 const visibleToolCalls = computed(() =>
-  currentToolCalls.value.filter((tool) => !!tool.toolName),
+  toolTraceVisible.value
+    ? currentToolCalls.value.filter((tool) => !!tool.toolName)
+    : [],
 );
 
 const liveReasoningDetail = computed<{
@@ -683,6 +686,9 @@ defineExpose({
             v-if="showThinkingIndicator"
             :elapsed="formattedThinkingElapsed"
           />
+          <div v-if="showThinkingIndicator && liveReasoningDetail" class="live-reasoning-detail">
+            <MarkdownRenderer :content="liveReasoningDetail.reasoning" />
+          </div>
           <div v-if="visibleToolCalls.length > 0 || chatStore.compressionState || chatStore.abortState" class="tool-calls-panel">
             <!-- Abort indicator -->
             <div v-if="chatStore.abortState" class="tool-call-item compression-item">
@@ -1618,6 +1624,31 @@ defineExpose({
   min-width: 0;
   padding: 4px;
   box-sizing: border-box;
+}
+
+.live-reasoning-detail {
+  width: 520px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: $radius-sm;
+  color: $text-secondary;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 13px;
+  line-height: 1.55;
+
+  .dark & {
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  :deep(p:first-child) {
+    margin-top: 0;
+  }
+
+  :deep(p:last-child) {
+    margin-bottom: 0;
+  }
 }
 
 .tool-calls-panel {

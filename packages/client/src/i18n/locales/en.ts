@@ -748,6 +748,9 @@ export default {
       created: 'Bundle created',
     },
     attachFiles: 'Attach files',
+    attachLocalFiles: 'Choose local files',
+    attachFnosFiles: 'Choose fnOS files',
+    attachConfirm: 'Add attachments',
     reasoningEffort: {
       tooltip: 'Reasoning effort',
       dragHint: 'Drag to choose · {count} levels',

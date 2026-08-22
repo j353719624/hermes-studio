@@ -1,1 +1,1 @@
-{"api-scope":["trim.file.sharedAccess"]}
+{"api-scope":["trim.file.sharedAccess","trim.system.getPlatformConfig"]}

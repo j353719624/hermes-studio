@@ -56,6 +56,7 @@ import { writeGateRoutes } from './hermes/write-gate'
 import { petdexPublicRoutes, petdexRoutes } from './hermes/petdex'
 import { petRoutes } from './hermes/pets'
 import { fnosBrowserRoutes } from './hermes/fnos-browser'
+import { fnosSystemRoutes } from './hermes/fnos-system'
 
 /**
  * Register all routes on the Koa app.
@@ -128,4 +129,5 @@ export function registerRoutes(app: any, authMiddleware: Array<(ctx: Context, ne
   app.use(petdexRoutes.routes())
   app.use(petRoutes.routes())
   app.use(fnosBrowserRoutes.routes())
+  app.use(fnosSystemRoutes.routes())
 }

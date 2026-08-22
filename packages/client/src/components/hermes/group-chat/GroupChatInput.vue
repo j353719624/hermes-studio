@@ -59,7 +59,7 @@ const inputSettingsOptions = computed<DropdownOption[]>(() => [
         }, autoPlaySpeech.value ? '✓' : ''),
     },
     {
-        label: t('chat.showToolCalls'),
+        label: toolTraceVisible.value ? t('chat.hideToolCalls') : t('chat.showToolCalls'),
         key: 'toolTrace',
         icon: () => h('span', {
             class: ['settings-check', { active: toolTraceVisible.value }],

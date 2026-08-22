@@ -15,6 +15,13 @@ interface SharedFoldersResponse {
   paths?: unknown
 }
 
+export interface FnosPlatformConfig {
+  systemVersion?: unknown
+  systemLanguage?: unknown
+  appVersion?: unknown
+  [key: string]: unknown
+}
+
 function isFnosMode(): boolean {
   return process.env.HERMES_FNOS_MODE === '1'
 }
@@ -88,4 +95,13 @@ export async function listFnosSharedAccessibleFolders(): Promise<string[]> {
     .filter((value): value is string => typeof value === 'string')
     .map(value => value.trim())
     .filter(value => value.startsWith('/') && !value.includes('\0'))
+}
+
+/**
+ * Read the documented fnOS platform configuration through the app-scope
+ * gateway. This is deliberately kept separate from the legacy appcgi
+ * sysinfo endpoints used by trim-cli.
+ */
+export async function getFnosPlatformConfig(): Promise<FnosPlatformConfig | null> {
+  return await callFnosOpenApi<FnosPlatformConfig>('trim.system.getPlatformConfig')
 }

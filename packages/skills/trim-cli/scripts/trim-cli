@@ -1,0 +1,66 @@
+#!/bin/sh
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+BIN_DIR="$SCRIPT_DIR/../bin"
+
+run_fnos_system_fallback() {
+  view="$1"
+  [ "${HERMES_FNOS_MODE:-}" = "1" ] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+
+  token_file="${HERMES_WEB_UI_HOME:-${HOME:-}}/.token"
+  [ -r "$token_file" ] || return 1
+  token=$(cat "$token_file")
+  [ -n "$token" ] || return 1
+
+  if [ -n "${HERMES_WEB_UI_SOCKET:-}" ] && [ -S "$HERMES_WEB_UI_SOCKET" ]; then
+    curl --fail --silent --show-error --unix-socket "$HERMES_WEB_UI_SOCKET" \
+      -H "Authorization: Bearer $token" \
+      "http://localhost/api/hermes/fnos/system-info?view=$view" 2>/dev/null
+    return $?
+  fi
+
+  base_url="${HERMES_WEB_UI_URL:-http://127.0.0.1:${PORT:-8648}}"
+  curl --fail --silent --show-error \
+    -H "Authorization: Bearer $token" \
+    "$base_url/api/hermes/fnos/system-info?view=$view" 2>/dev/null
+}
+
+case "${1:-}:${2:-}" in
+  system:info|system:uptime|system:trim-version|system:is-trim-machine)
+    if run_fnos_system_fallback "$2"; then
+      exit 0
+    fi
+    ;;
+esac
+
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+case "$OS:$ARCH" in
+  Darwin:arm64)
+    TARGET="$BIN_DIR/trim-cli-darwin-arm64"
+    ;;
+  Darwin:x86_64)
+    TARGET="$BIN_DIR/trim-cli-darwin-x64"
+    ;;
+  Linux:x86_64)
+    TARGET="$BIN_DIR/trim-cli-linux-x64"
+    ;;
+  Linux:aarch64|Linux:arm64)
+    TARGET="$BIN_DIR/trim-cli-linux-arm64"
+    ;;
+  *)
+    echo "Unsupported platform for ./scripts/trim-cli: $OS $ARCH" >&2
+    exit 1
+    ;;
+esac
+
+if [ ! -x "$TARGET" ]; then
+  echo "Missing packaged binary: $TARGET" >&2
+  exit 1
+fi
+
+exec "$TARGET" "$@"

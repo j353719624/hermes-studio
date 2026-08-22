@@ -175,8 +175,11 @@ async function verifyStage(stage) {
   if (privilege.defaults?.['run-as'] !== 'package') fail('应用未使用 package 用户运行')
   const resource = JSON.parse(readFileSync(join(stage, 'config', 'resource'), 'utf8'))
   const apiScope = resource?.['api-scope']
-  if (!Array.isArray(apiScope) || apiScope.length !== 1 || apiScope[0] !== 'trim.file.sharedAccess') {
-    fail('fnOS 资源权限必须只声明 trim.file.sharedAccess')
+  if (!Array.isArray(apiScope)
+    || apiScope.length !== 2
+    || apiScope[0] !== 'trim.file.sharedAccess'
+    || apiScope[1] !== 'trim.system.getPlatformConfig') {
+    fail('fnOS 资源权限必须声明 trim.file.sharedAccess 与 trim.system.getPlatformConfig')
   }
   for (const name of ['upgrade', 'config', 'uninstall']) {
     const wizard = JSON.parse(readFileSync(join(stage, 'wizard', name), 'utf8'))

@@ -18,6 +18,8 @@ import BundleCreateModal from './BundleCreateModal.vue'
 import { BRIDGE_SESSION_COMMAND_DEFINITIONS } from '@/utils/hermes/bridge-session-commands'
 import { clampChatInputHeight, isMobileChatInputViewport } from '@/utils/chat-input-height'
 import { normalizeComposerVoiceTranscript, useComposerVoiceInput } from '@/composables/useComposerVoiceInput'
+import { isFnosMode } from '@/api/client'
+import { fnosTrimApp, pickFnosSharedFiles } from '@/utils/fnos-folder-picker'
 
 const chatStore = useChatStore()
 const appStore = useAppStore()
@@ -120,6 +122,11 @@ const manualTextareaResize = ref(false)
 const configuredTextareaHeight = computed(() =>
   isMobileViewport.value ? null : clampChatInputHeight(settingsStore.display.chat_input_height),
 )
+const fnosAttachmentPickerEnabled = computed(() => isFnosMode())
+const attachmentPickerOptions = computed<DropdownOption[]>(() => [
+  { label: t('chat.attachLocalFiles'), key: 'local' },
+  { label: t('chat.attachFnosFiles'), key: 'fnos' },
+])
 
 type SlashCommandOption = {
   name: string
@@ -446,7 +453,7 @@ const inputSettingsOptions = computed<DropdownOption[]>(() => [
     }, '◉'),
   },
   {
-    label: t('chat.showToolCalls'),
+    label: toolTraceVisible.value ? t('chat.hideToolCalls') : t('chat.showToolCalls'),
     key: 'toolTrace',
     icon: () => h('span', {
       class: ['settings-check', { active: toolTraceVisible.value }],
@@ -833,6 +840,34 @@ function addFiles(files: File[]) {
   if (files.length > 0) textareaRef.value?.focus()
 }
 
+function guessAttachmentType(name: string): string {
+  const extension = name.toLowerCase().split('.').pop() || ''
+  const types: Record<string, string> = {
+    avif: 'image/avif', bmp: 'image/bmp', gif: 'image/gif', jpeg: 'image/jpeg',
+    jpg: 'image/jpeg', png: 'image/png', svg: 'image/svg+xml', webp: 'image/webp',
+    csv: 'text/csv', html: 'text/html', json: 'application/json', md: 'text/markdown',
+    pdf: 'application/pdf', txt: 'text/plain', xml: 'application/xml', yaml: 'text/yaml',
+    yml: 'text/yaml', zip: 'application/zip',
+  }
+  return types[extension] || 'application/octet-stream'
+}
+
+function addFnosFiles(paths: string[]) {
+  for (const sourcePath of paths) {
+    const name = sourcePath.split(/[\\/]/).filter(Boolean).pop() || sourcePath
+    if (attachments.value.some(att => att.sourcePath === sourcePath || att.name === name)) continue
+    attachments.value.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      name,
+      type: guessAttachmentType(name),
+      size: 0,
+      url: '',
+      sourcePath,
+    })
+  }
+  if (paths.length > 0) textareaRef.value?.focus()
+}
+
 function addBrowserAttachment(file: File, context: string) {
   addFile(file, context)
   textareaRef.value?.focus()
@@ -840,6 +875,25 @@ function addBrowserAttachment(file: File, context: string) {
 
 function handleAttachClick() {
   fileInputRef.value?.click()
+}
+
+async function handleAttachmentPickerSelect(key: string) {
+  if (key === 'local') {
+    handleAttachClick()
+    return
+  }
+  if (key !== 'fnos') return
+  try {
+    const paths = await pickFnosSharedFiles(fnosTrimApp, {
+      title: t('chat.attachFnosFiles'),
+      okText: t('chat.attachConfirm'),
+      sidebarGroup: ['myFiles', 'otherShare'],
+    })
+    addFnosFiles(paths)
+  } catch (error: any) {
+    const detail = String(error?.message || error || '').trim()
+    if (detail && !/取消|cancel/i.test(detail)) message.error(detail)
+  }
 }
 
 function handleFileChange(e: Event) {
@@ -1010,7 +1064,7 @@ onUnmounted(() => {
 function removeAttachment(id: string) {
   const idx = attachments.value.findIndex(a => a.id === id)
   if (idx !== -1) {
-    URL.revokeObjectURL(attachments.value[idx].url)
+    if (attachments.value[idx].url) URL.revokeObjectURL(attachments.value[idx].url)
     attachments.value.splice(idx, 1)
   }
 }
@@ -1036,7 +1090,7 @@ function isImage(type: string): boolean {
         class="attachment-preview"
         :class="{ image: isImage(att.type), 'has-context': !!att.context }"
       >
-        <template v-if="isImage(att.type)">
+        <template v-if="isImage(att.type) && att.url">
           <img :src="att.url" :alt="att.name" class="attachment-thumb" />
         </template>
         <template v-else>
@@ -1136,7 +1190,24 @@ function isImage(type: string): boolean {
       <div class="input-toolbar">
         <!-- Bottom bar: attach + input settings + actions -->
         <div class="input-top-bar">
-          <NTooltip trigger="hover" :disabled="isMobileViewport">
+          <NDropdown
+            v-if="fnosAttachmentPickerEnabled"
+            trigger="click"
+            :options="attachmentPickerOptions"
+            @select="handleAttachmentPickerSelect"
+          >
+            <NTooltip trigger="hover" :disabled="isMobileViewport">
+              <template #trigger>
+                <NButton quaternary size="tiny" circle class="toolbar-icon-button">
+                  <template #icon>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                  </template>
+                </NButton>
+              </template>
+              {{ t('chat.attachFiles') }}
+            </NTooltip>
+          </NDropdown>
+          <NTooltip v-else trigger="hover" :disabled="isMobileViewport">
             <template #trigger>
               <NButton quaternary size="tiny" @click="handleAttachClick" circle class="toolbar-icon-button">
                 <template #icon>

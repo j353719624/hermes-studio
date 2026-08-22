@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { NModal, NUpload, NButton, NInput, NRadioGroup, NRadio, useMessage } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { importSkill, importSkillFromPath } from '@/api/hermes/skills'
+import { fnosTrimApp, pickFnosSharedFolder } from '@/utils/fnos-folder-picker'
 import { useI18n } from 'vue-i18n'
-import { TrimApp } from '@trimjs/web-app'
 
 const emit = defineEmits<{
   close: []
@@ -23,7 +23,7 @@ const folderPath = ref('')
 const folderName = ref('')
 const category = ref('')
 const folderInputRef = ref<HTMLInputElement | null>(null)
-const trimApp = new TrimApp()
+const trimApp = fnosTrimApp
 const canPickFnosFolder = computed(() => trimApp.isWeb && !trimApp.isStandaloneWeb)
 const pickingFnosFolder = ref(false)
 
@@ -32,6 +32,10 @@ const hasSelection = computed(() =>
     ? zipFiles.value.length > 0
     : canPickFnosFolder.value ? !!folderPath.value : folderFiles.value.length > 0,
 )
+
+onMounted(() => {
+  if (canPickFnosFolder.value) void trimApp.ready().catch(() => undefined)
+})
 
 function onModeChange() {
   zipFiles.value = []
@@ -57,21 +61,18 @@ async function pickFnosFolder() {
   if (!canPickFnosFolder.value || pickingFnosFolder.value) return
   pickingFnosFolder.value = true
   try {
-    await trimApp.ready()
-    const result = await trimApp.pickSharedFile({
+    const selected = await pickFnosSharedFolder(trimApp, {
       title: t('skills.importSelectFnosFolder'),
       okText: t('skills.importSelectFolder'),
       sidebarGroup: ['myFiles', 'otherShare', 'external'],
     })
-    const selected = Array.isArray(result?.data) ? String(result.data[0] || '').trim() : ''
     if (selected) {
       folderPath.value = selected
       folderName.value = selected
-    } else if (result && result.code !== 0) {
-      message.error(result.msg || t('skills.importSelectFolderFailed'))
     }
-  } catch {
-    message.error(t('skills.importSelectFolderFailed'))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : ''
+    message.error(detail || t('skills.importSelectFolderFailed'))
   } finally {
     pickingFnosFolder.value = false
   }
@@ -175,6 +176,14 @@ function handleClose() {
       </NUpload>
 
       <div v-else class="folder-picker">
+        <NInput
+          v-if="canPickFnosFolder"
+          v-model:value="folderPath"
+          size="small"
+          :placeholder="t('skills.importHintFnosFolder')"
+          :disabled="loading"
+          @update:value="folderName = folderPath"
+        />
         <NButton v-if="canPickFnosFolder" :loading="pickingFnosFolder" :disabled="loading" @click="pickFnosFolder">
           {{ t('skills.importSelectFnosFolder') }}
         </NButton>

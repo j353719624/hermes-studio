@@ -77,7 +77,9 @@ async function fetchRemoteLinkStatus(device: LanDeviceInfo): Promise<DeviceOutbo
   try {
     const response = await postLanJson(`${device.url.replace(/\/$/, '')}/api/devices/link-status`, {
       device_id: localInfo.device_id,
+      deviceId: localInfo.device_id,
       device_public_key: localInfo.device_public_key,
+      devicePublicKey: localInfo.device_public_key,
       timestamp,
       nonce,
       signature,
@@ -285,11 +287,23 @@ async function requestPairingWithDevice(target: LanDeviceInfo, pairingCode = '')
   const body = {
     ...localInfo,
     http_port: config.port,
+    httpPort: config.port,
+    port: config.port,
     endpoint_kind: getLanEndpointKind(config.port),
+    endpointKind: getLanEndpointKind(config.port),
+    deviceId: localInfo.device_id,
+    devicePublicKey: localInfo.device_public_key,
+    computerName: localInfo.computer_name,
+    deviceName: localInfo.computer_name,
+    hermesAgentVersion: localInfo.hermes_agent_version,
+    hermesWebUiVersion: localInfo.hermes_web_ui_version,
+    agentVersion: localInfo.hermes_agent_version,
+    webUiVersion: localInfo.hermes_web_ui_version,
     timestamp,
     nonce,
     signature,
     pairing_code: pairingCode,
+    pairingCode,
   }
 
   const response = await postLanJson(`${target.url.replace(/\/$/, '')}/api/devices/link-request`, body, 5000)
@@ -392,13 +406,18 @@ function hostForUrl(host: string): string {
 }
 
 function bodyToDevice(ctx: any, body: any): LanDeviceInfo | null {
-  const deviceId = typeof body?.device_id === 'string' ? body.device_id.trim() : ''
-  const publicKey = typeof body?.device_public_key === 'string' ? body.device_public_key : ''
-  const httpPort = Number(body?.http_port)
+  const deviceId = typeof (body?.device_id ?? body?.deviceId) === 'string'
+    ? (body.device_id ?? body.deviceId).trim()
+    : ''
+  const publicKey = typeof (body?.device_public_key ?? body?.devicePublicKey) === 'string'
+    ? (body.device_public_key ?? body.devicePublicKey)
+    : ''
+  const httpPort = Number(body?.http_port ?? body?.httpPort ?? body?.port)
   if (!deviceId || !publicKey || !Number.isInteger(httpPort) || httpPort <= 0 || httpPort > 65535) return null
   const ip = normalizeIp(ctx)
-  const endpointKind = body.endpoint_kind === 'web' || body.endpoint_kind === 'desktop' || body.endpoint_kind === 'custom'
-    ? body.endpoint_kind
+  const endpointKindValue = body.endpoint_kind ?? body.endpointKind
+  const endpointKind = endpointKindValue === 'web' || endpointKindValue === 'desktop' || endpointKindValue === 'custom'
+    ? endpointKindValue
     : getLanEndpointKind(httpPort)
 
   return {
@@ -409,15 +428,15 @@ function bodyToDevice(ctx: any, body: any): LanDeviceInfo | null {
     http_port: httpPort,
     endpoint_kind: endpointKind,
     url: `http://${hostForUrl(ip)}:${httpPort}`,
-    computer_name: String(body?.computer_name || ''),
+    computer_name: String(body?.computer_name ?? body?.computerName ?? ''),
     os: {
       type: String(body?.os?.type || ''),
       platform: String(body?.os?.platform || '') as NodeJS.Platform,
       release: String(body?.os?.release || ''),
       arch: String(body?.os?.arch || ''),
     },
-    hermes_agent_version: String(body?.hermes_agent_version || ''),
-    hermes_web_ui_version: String(body?.hermes_web_ui_version || ''),
+    hermes_agent_version: String(body?.hermes_agent_version ?? body?.hermesAgentVersion ?? ''),
+    hermes_web_ui_version: String(body?.hermes_web_ui_version ?? body?.hermesWebUiVersion ?? ''),
     response_ms: 0,
     last_seen_at: new Date().toISOString(),
   }
@@ -425,7 +444,7 @@ function bodyToDevice(ctx: any, body: any): LanDeviceInfo | null {
 
 export async function requestDeviceLinkController(ctx: any) {
   const body = ctx.request.body as any
-  const timestamp = Number(body?.timestamp)
+  const timestamp = Number(body?.timestamp ?? body?.requestTimestamp)
   const nonce = typeof body?.nonce === 'string' ? body.nonce : ''
   const signature = typeof body?.signature === 'string' ? body.signature : ''
   const device = bodyToDevice(ctx, body)
@@ -464,7 +483,7 @@ export async function requestDeviceLinkController(ctx: any) {
       ctx.body = { error: 'Too many invalid pairing attempts, please try again later' }
       return
     }
-    if (!verifyDevicePairingCode(body?.pairing_code)) {
+    if (!verifyDevicePairingCode(body?.pairing_code ?? body?.pairingCode)) {
       recordPairingFailure(pairingIp)
       ctx.status = 403
       ctx.body = { error: 'Invalid pairing code' }
@@ -487,9 +506,13 @@ export async function requestDeviceLinkController(ctx: any) {
 
 export async function requestDeviceLinkStatusController(ctx: any) {
   const body = ctx.request.body as any
-  const deviceId = typeof body?.device_id === 'string' ? body.device_id.trim() : ''
-  const publicKey = typeof body?.device_public_key === 'string' ? body.device_public_key : ''
-  const timestamp = Number(body?.timestamp)
+  const deviceId = typeof (body?.device_id ?? body?.deviceId) === 'string'
+    ? (body.device_id ?? body.deviceId).trim()
+    : ''
+  const publicKey = typeof (body?.device_public_key ?? body?.devicePublicKey) === 'string'
+    ? (body.device_public_key ?? body.devicePublicKey)
+    : ''
+  const timestamp = Number(body?.timestamp ?? body?.requestTimestamp)
   const nonce = typeof body?.nonce === 'string' ? body.nonce : ''
   const signature = typeof body?.signature === 'string' ? body.signature : ''
 

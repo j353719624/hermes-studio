@@ -56,6 +56,22 @@ cpSync(
   { recursive: true },
 )
 
+const trimCliDir = resolve(skillsOutDir, 'trim-cli')
+if (existsSync(trimCliDir)) {
+  for (const relativePath of [
+    'scripts/trim-cli',
+    'scripts/trim-cli.cmd',
+    'scripts/trim-cli.ps1',
+    'bin/trim-cli-darwin-arm64',
+    'bin/trim-cli-darwin-x64',
+    'bin/trim-cli-linux-arm64',
+    'bin/trim-cli-linux-x64',
+  ]) {
+    const filePath = resolve(trimCliDir, relativePath)
+    if (existsSync(filePath)) chmodSync(filePath, 0o755)
+  }
+}
+
 const firmwareOutDir = resolve(rootDir, 'dist/mcu')
 const legacyFirmwareOutPath = resolve(firmwareOutDir, 'firmware.bin')
 for (const firmwareVersion of ['v1', 'v2']) {

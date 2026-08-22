@@ -1,4 +1,4 @@
-import { getActiveProfileName, getApiKey } from '../client'
+import { getActiveProfileName, getApiKey, getBaseUrlValue } from '../client'
 
 export interface TtsOptions {
   text: string
@@ -75,7 +75,7 @@ function ttsHeaders(explicitProfile?: string): Record<string, string> {
 
 export async function generateSpeech(opts: TtsOptions): Promise<{ audio: Blob; engine: string }> {
   const res = await fetch(
-    `${localStorage.getItem('hermes_server_url') || ''}/api/hermes/tts`,
+    `${getBaseUrlValue()}/api/hermes/tts`,
     {
       method: 'POST',
       headers: ttsHeaders(),
@@ -96,7 +96,7 @@ export async function synthesizeSpeech(
   req: SynthesizeSpeechRequest,
 ): Promise<{ audio: Blob; engine: string; provider: string }> {
   const res = await fetch(
-    `${localStorage.getItem('hermes_server_url') || ''}/api/hermes/tts/synthesize`,
+    `${getBaseUrlValue()}/api/hermes/tts/synthesize`,
     {
       method: 'POST',
       headers: ttsHeaders(req.profile),
@@ -122,7 +122,9 @@ export async function synthesizeSpeech(
 export function playAudioBlob(blob: Blob): HTMLAudioElement {
   const url = URL.createObjectURL(blob)
   const audio = new Audio(url)
-  audio.play()
-  audio.onended = () => URL.revokeObjectURL(url)
+  audio.preload = 'auto'
+  const releaseUrl = () => URL.revokeObjectURL(url)
+  audio.addEventListener('ended', releaseUrl, { once: true })
+  audio.addEventListener('error', releaseUrl, { once: true })
   return audio
 }

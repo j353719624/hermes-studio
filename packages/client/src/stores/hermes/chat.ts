@@ -58,6 +58,8 @@ export interface Attachment {
   size: number
   url: string
   file?: File
+  /** Absolute path authorized by the fnOS shared-file picker. */
+  sourcePath?: string
   /** Structured context sent to the model but rendered collapsed in the UI. */
   context?: string
 }
@@ -571,23 +573,56 @@ function errorMessageText(error: unknown): string {
 
 async function uploadFiles(attachments: Attachment[]): Promise<{ name: string; path: string }[]> {
   if (attachments.length === 0) return []
-  const formData = new FormData()
-  for (const att of attachments) {
-    if (att.file) formData.append('file', att.file, att.name)
-  }
   const token = localStorage.getItem('hermes_api_key') || ''
   const profileName = getActiveProfileName()
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   if (profileName) headers['X-Hermes-Profile'] = profileName
-  const res = await fetch(`${getBaseUrlValue()}/upload`, {
-    method: 'POST',
-    body: formData,
-    headers,
-  })
-  if (!res.ok) throw new Error(await responseErrorMessage(res, 'Upload failed'))
-  const data = await res.json() as { files: { name: string; path: string }[] }
-  return data.files
+
+  const uploaded = new Array<{ name: string; path: string }>(attachments.length)
+  const localIndexes = attachments
+    .map((attachment, index) => attachment.file ? index : -1)
+    .filter(index => index >= 0)
+  if (localIndexes.length > 0) {
+    const formData = new FormData()
+    for (const index of localIndexes) {
+      const attachment = attachments[index]
+      if (attachment.file) formData.append('file', attachment.file, attachment.name)
+    }
+    const res = await fetch(`${getBaseUrlValue()}/upload`, {
+      method: 'POST',
+      body: formData,
+      headers,
+    })
+    if (!res.ok) throw new Error(await responseErrorMessage(res, 'Upload failed'))
+    const data = await res.json() as { files: { name: string; path: string }[] }
+    for (const [offset, index] of localIndexes.entries()) {
+      const file = data.files?.[offset]
+      if (!file) throw new Error('Upload returned fewer files than requested')
+      uploaded[index] = file
+    }
+  }
+
+  const remoteIndexes = attachments
+    .map((attachment, index) => attachment.sourcePath ? index : -1)
+    .filter(index => index >= 0)
+  if (remoteIndexes.length > 0) {
+    const res = await fetch(`${getBaseUrlValue()}/upload`, {
+      method: 'POST',
+      body: JSON.stringify({ paths: remoteIndexes.map(index => attachments[index].sourcePath) }),
+      headers: { ...headers, 'Content-Type': 'application/json' },
+    })
+    if (!res.ok) throw new Error(await responseErrorMessage(res, '飞牛文件导入失败'))
+    const data = await res.json() as { files: { name: string; path: string }[] }
+    for (const [offset, index] of remoteIndexes.entries()) {
+      const file = data.files?.[offset]
+      if (!file) throw new Error('飞牛文件导入返回的文件数量不完整')
+      uploaded[index] = file
+    }
+  }
+
+  if (uploaded.some(file => !file)) throw new Error('附件没有可上传的文件内容')
+  return uploaded
 }
 
 export async function buildContentBlocks(

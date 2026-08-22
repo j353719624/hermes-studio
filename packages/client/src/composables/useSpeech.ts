@@ -242,6 +242,14 @@ export function useSpeech() {
         console.warn('[useSpeech] TTS audio playback error, falling back to browser')
         speakViaBrowser(messageId, text, options, token)
       }
+
+      try {
+        await currentAudio.play()
+      } catch (error) {
+        if (token !== playbackToken) return
+        console.warn('[useSpeech] TTS audio play was blocked or unsupported, falling back to browser', error)
+        currentAudio.onerror?.(new Event('error'))
+      }
     } catch (err) {
       if (token !== playbackToken) return
       console.warn('[useSpeech] TTS API failed, falling back to browser:', err)
@@ -890,7 +898,7 @@ export function useSpeech() {
     }
     if (state.value.isPaused) {
       if (state.value.engine === 'tts' && currentAudio) {
-        currentAudio.play()
+        void currentAudio.play().catch(() => undefined)
       } else if (typeof synth?.resume === 'function') {
         synth.resume()
       }
