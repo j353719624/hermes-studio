@@ -96,6 +96,7 @@ describe('local STT model manager', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.resetModules()
     for (const directory of tempDirs.splice(0)) {
       rmSync(directory, { recursive: true, force: true })
@@ -236,6 +237,24 @@ describe('local STT model manager', () => {
 
     const childSource = spawnMock.mock.calls[0]?.[1]?.[2]
     expect(childSource).toContain('sherpa.readWave(audioPath, false)')
+    await manager.shutdownLocalSttRuntime()
+  })
+
+  it('uses the bundled Node runtime instead of the fnOS SEA executable', async () => {
+    const child = createFakeModelProcess()
+    spawnMock.mockReturnValue(child)
+    vi.stubEnv('HERMES_AGENT_NODE', '/vol2/@appdata/hermes-studio/runtime/node/bin/node')
+    const manager = await import('../../packages/server/src/services/hermes/local-stt-model-manager')
+    installSparseTestModel(manager)
+
+    await manager.createLocalSttStreamSession('7:default')
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      '/vol2/@appdata/hermes-studio/runtime/node/bin/node',
+      expect.arrayContaining(['--expose-gc', '-e']),
+      expect.objectContaining({ stdio: ['ignore', 'ignore', 'inherit', 'ipc'] }),
+    )
+
     await manager.shutdownLocalSttRuntime()
   })
 

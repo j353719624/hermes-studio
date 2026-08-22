@@ -475,7 +475,8 @@ function clearStreamSessions(): void {
 }
 
 function spawnModelProcess(): ChildProcess {
-  return spawn(process.execPath, ['--expose-gc', '-e', LOCAL_STT_CHILD_SOURCE], {
+  const nodeExecutable = process.env.HERMES_AGENT_NODE?.trim() || process.execPath
+  return spawn(nodeExecutable, ['--expose-gc', '-e', LOCAL_STT_CHILD_SOURCE], {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
