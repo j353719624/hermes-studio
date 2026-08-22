@@ -55,7 +55,7 @@ import { fnosRuntimeRoutes } from './hermes/fnos-runtime'
 import { writeGateRoutes } from './hermes/write-gate'
 import { petdexPublicRoutes, petdexRoutes } from './hermes/petdex'
 import { petRoutes } from './hermes/pets'
-import { fnosBrowserRoutes } from './hermes/fnos-browser'
+import { fnosBrowserConfigRoutes } from './hermes/fnos-browser-config'
 import { fnosSystemRoutes } from './hermes/fnos-system'
 
 /**
@@ -128,6 +128,6 @@ export function registerRoutes(app: any, authMiddleware: Array<(ctx: Context, ne
   app.use(writeGateRoutes.routes())              // Hermes Agent write approval review
   app.use(petdexRoutes.routes())
   app.use(petRoutes.routes())
-  app.use(fnosBrowserRoutes.routes())
+  app.use(fnosBrowserConfigRoutes.routes())
   app.use(fnosSystemRoutes.routes())
 }

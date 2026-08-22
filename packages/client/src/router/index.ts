@@ -226,15 +226,15 @@ const FNOS_UNAVAILABLE_ROUTES = new Set([
   'hermes.versionPreview',
 ])
 
-// Desktop exposes a dedicated settings page. Actual browsing stays inside the
-// chat tool panel so this route never creates or positions a WebContentsView.
+// Desktop exposes the browser settings page. fnOS exposes the same settings
+// surface, but does not create an embedded browser window.
 if (hasDesktopBrowserBridge() || isFnosMode()) {
   router.addRoute({
     path: '/hermes/browser',
     name: 'hermes.browser',
-    component: () => isFnosMode()
-      ? import('@/views/hermes/FnosBrowserView.vue')
-      : import('@/views/hermes/DesktopBrowserView.vue'),
+    component: () => hasDesktopBrowserBridge()
+      ? import('@/views/hermes/DesktopBrowserView.vue')
+      : import('@/views/hermes/FnosBrowserSettingsView.vue'),
   })
 }
 

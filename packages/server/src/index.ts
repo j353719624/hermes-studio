@@ -11,7 +11,6 @@ import { initLoginLimiter } from './services/login-limiter'
 import { bindShutdown } from './services/shutdown'
 import { setupTerminalWebSocket } from './routes/hermes/terminal'
 import { setupKanbanEventsWebSocket } from './routes/hermes/kanban-events'
-import { setupFnosBrowserWebSocket } from './services/hermes/fnos-browser'
 import { startVersionCheck } from './routes/health'
 import { registerRoutes } from './routes'
 import { setGroupChatServer } from './routes/hermes/group-chat'
@@ -345,7 +344,6 @@ export async function bootstrap() {
 
   setupTerminalWebSocket(servers)
   setupKanbanEventsWebSocket(servers)
-  setupFnosBrowserWebSocket(servers)
   getLanPeerSocketManager().setupServer(servers)
   console.log('[bootstrap] terminal + kanban + LAN peer websocket setup')
 
@@ -419,7 +417,6 @@ export async function bootstrap() {
         || url.pathname.startsWith(`${config.socketIoPath}/`)
       if (pathname !== '/api/hermes/terminal' &&
         pathname !== '/api/hermes/kanban/events' &&
-        pathname !== '/api/hermes/browser/stream' &&
         pathname !== getLanPeerSocketPath() &&
         !socketIoRequest) {
         socket.destroy()
