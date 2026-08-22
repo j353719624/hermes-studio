@@ -202,13 +202,21 @@ onMounted(async () => {
 
 <template>
   <section class="browser-settings-page">
+    <header class="page-header">
+      <h2 class="header-title">{{ t('browser.title') }}</h2>
+      <div class="header-actions">
+        <NButton type="primary" size="small" :disabled="busy" @click="openCreateProfile">
+          <template #icon>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          </template>
+          {{ t('browser.addProfile') }}
+        </NButton>
+      </div>
+    </header>
     <div v-if="loadError" class="unavailable">{{ loadError }}</div>
     <NCard v-else class="settings-card" :bordered="false">
       <NTabs type="line" animated>
         <NTabPane name="profiles" :tab="t('browser.profiles')">
-          <div class="tab-toolbar">
-            <NButton type="primary" size="small" :disabled="busy" @click="openCreateProfile">＋ {{ t('browser.addProfile') }}</NButton>
-          </div>
           <div v-if="state" class="profiles-grid">
             <article v-for="profile in state.profiles" :key="profile.id" class="profile-card" :class="{ active: profile.id === state.activeProfileId }">
               <div class="profile-card-header">
@@ -277,9 +285,8 @@ onMounted(async () => {
 <style scoped lang="scss">
 .browser-settings-page { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--text-color); }
 .hint { margin: 6px 0 0; color: var(--text-color-3); font-size: 12px; line-height: 1.5; }
-.settings-card { flex: 1; min-height: 0; overflow: auto; padding: 0 0 20px; }
-.settings-card :deep(.n-card__content) { max-width: none; width: 100%; margin: 0; padding: 0 18px 20px; }
-.tab-toolbar { display: flex; justify-content: flex-end; margin: 14px 0; }
+.settings-card { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px 20px; }
+.settings-card :deep(.n-card__content) { max-width: 1120px; width: 100%; margin: 0 auto; }
 .profiles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .profile-card { min-width: 0; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); }
 .profile-card.active { border-color: rgba(var(--accent-primary-rgb), .55); box-shadow: inset 0 0 0 1px rgba(var(--accent-primary-rgb), .1); }

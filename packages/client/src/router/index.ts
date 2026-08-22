@@ -223,7 +223,6 @@ const router = createRouter({
 
 const FNOS_UNAVAILABLE_ROUTES = new Set([
   'hermes.terminal',
-  'hermes.versionPreview',
 ])
 
 // Desktop exposes the browser settings page. fnOS exposes the same settings
