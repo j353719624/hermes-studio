@@ -9,6 +9,8 @@ import { homedir } from 'os'
  * - BIND_HOST: Web UI bind host. Default: 0.0.0.0.
  * - HERMES_WEB_UI_SOCKET: Unix Socket used by the fnOS unified gateway.
  * - HERMES_WEB_UI_SOCKET_MODE: Unix Socket mode. Default: 0660.
+ * - HERMES_LAN_PORT: Optional LAN peer listener port. `0` selects an available port.
+ * - HERMES_LAN_HOST: LAN peer listener bind host. Default: 0.0.0.0.
  * - HERMES_WEB_UI_BASE_PATH: Public reverse-proxy prefix, for example /app/hermes-studio.
  * - HERMES_FNOS_MODE: Enable fnOS gateway identity checks and the restricted feature set.
  * - CORS_ORIGINS: Comma/space-separated cross-origin allowlist. Default: same host only.
@@ -106,6 +108,20 @@ export function getUnixSocketMode(env: Record<string, string | undefined> = proc
   return mode
 }
 
+export function getLanListenPort(env: Record<string, string | undefined> = process.env): number | undefined {
+  const raw = env.HERMES_LAN_PORT?.trim()
+  if (raw === undefined || raw === '') return undefined
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 0 || value > 65535) {
+    throw new Error('HERMES_LAN_PORT must be an integer between 0 and 65535')
+  }
+  return value
+}
+
+export function getLanListenHost(env: Record<string, string | undefined> = process.env): string {
+  return env.HERMES_LAN_HOST?.trim() || '0.0.0.0'
+}
+
 export function getWebUiHome(env: Record<string, string | undefined> = process.env): string {
   const appHome = env.HERMES_WEB_UI_HOME?.trim() || env.HERMES_WEBUI_STATE_DIR?.trim()
   return appHome ? resolve(appHome) : join(homedir(), '.hermes-web-ui')
@@ -156,6 +172,8 @@ export const config = {
   socketIoPath: getSocketIoPath(),
   unixSocketPath: getUnixSocketPath(),
   unixSocketMode: getUnixSocketMode(),
+  lanPort: getLanListenPort(),
+  lanHost: getLanListenHost(),
   appHome,
   uploadDir: process.env.UPLOAD_DIR || join(appHome, 'upload'),
   dataDir: resolve(__dirname, '..', 'data'),
@@ -163,4 +181,11 @@ export const config = {
   lanAdvertiseUrl: getLanAdvertiseUrl(),
   remoteRelay,
   appRelay,
+}
+
+export function getLanHttpPort(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.HERMES_LAN_HTTP_PORT?.trim()
+  const value = Number(raw)
+  if (raw && Number.isInteger(value) && value > 0 && value <= 65535) return value
+  return config.port
 }

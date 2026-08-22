@@ -9,6 +9,12 @@ const DISABLED_API_PREFIXES = [
   '/api/hermes/stt/local-stream',
 ]
 
+const LAN_DEVICE_PATHS = new Set([
+  '/api/devices/link-info',
+  '/api/devices/link-request',
+  '/api/devices/link-status',
+])
+
 function requestedLocalStt(body: unknown): boolean {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false
   const value = body as { provider?: unknown; activeProvider?: unknown }
@@ -46,6 +52,25 @@ function requestPath(req: IncomingMessage): string {
   }
 }
 
+function isLanDeviceRequest(req: IncomingMessage): boolean {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    const path = requestPath(req)
+    return LAN_DEVICE_PATHS.has(path) && isPrivateNetworkAddress(req.socket.remoteAddress)
+  }
+  return false
+}
+
+function isPrivateNetworkAddress(address?: string | null): boolean {
+  const value = String(address || '').replace(/^::ffff:/, '')
+  if (value === '::1' || value === '127.0.0.1') return true
+  const parts = value.split('.').map(part => Number(part))
+  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false
+  return parts[0] === 10
+    || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    || (parts[0] === 192 && parts[1] === 168)
+    || (parts[0] === 169 && parts[1] === 254)
+}
+
 export function hasGatewayPrefix(path: string, basePath = config.publicBasePath): boolean {
   return Boolean(basePath && (path === basePath || path.startsWith(`${basePath}/`)))
 }
@@ -53,6 +78,7 @@ export function hasGatewayPrefix(path: string, basePath = config.publicBasePath)
 export function isFnosGatewayRequestAllowed(req: IncomingMessage): boolean {
   if (!config.fnos) return true
   if (isLoopbackAddress(req.socket.remoteAddress)) return true
+  if (isLanDeviceRequest(req)) return true
   return hasGatewayPrefix(requestPath(req)) && isTrimAdminHeader(req.headers['x-trim-isadmin'])
 }
 
@@ -66,7 +92,8 @@ export function createFnosGatewayMiddleware(): Middleware {
     const path = ctx.path
     const viaGateway = hasGatewayPrefix(path)
     const loopback = isLoopbackAddress(ctx.req.socket.remoteAddress)
-    if (!loopback && (!viaGateway || !isTrimAdminHeader(ctx.get('x-trim-isadmin')))) {
+    const lanDeviceRequest = isLanDeviceRequest(ctx.req)
+    if (!loopback && !lanDeviceRequest && (!viaGateway || !isTrimAdminHeader(ctx.get('x-trim-isadmin')))) {
       ctx.status = 403
       ctx.body = { error: 'fnos_admin_required' }
       return

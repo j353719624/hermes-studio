@@ -31,7 +31,7 @@ import { listProfileNamesFromDisk } from '../services/hermes/hermes-profile'
 import { startOutboundRelayClient, stopOutboundRelayClient } from '../services/global-agent/outbound-relay-client'
 import { getLanEndpointKind } from '../services/lan-discovery'
 import { getPublicSystemInfo } from '../services/system-info'
-import { config } from '../config'
+import { config, getLanHttpPort } from '../config'
 import { isTrimAdminHeader } from '../middleware/fnos-gateway'
 
 /**
@@ -410,10 +410,11 @@ async function verifyRemoteRelayDeviceCode(deviceCode: string): Promise<boolean>
 
 async function localRelayMachineInfo(url: string) {
   const info = await getPublicSystemInfo()
+  const lanPort = getLanHttpPort()
   return {
     ...info,
-    http_port: config.port,
-    endpoint_kind: getLanEndpointKind(config.port),
+    http_port: lanPort,
+    endpoint_kind: getLanEndpointKind(lanPort),
     url,
     relay_url: config.remoteRelay.url,
   }

@@ -6,7 +6,7 @@ import send from 'koa-send'
 import { relative, resolve } from 'path'
 import { mkdir } from 'fs/promises'
 import { readFileSync } from 'fs'
-import { config, shouldCreateWebUiDataDir, stripPublicBasePath } from './config'
+import { config, getLanHttpPort, shouldCreateWebUiDataDir, stripPublicBasePath } from './config'
 import { initLoginLimiter } from './services/login-limiter'
 import { bindShutdown } from './services/shutdown'
 import { setupTerminalWebSocket } from './routes/hermes/terminal'
@@ -201,8 +201,8 @@ function startRuntimeServicesAfterListen(): void {
   })()
 }
 
-function startLanDiscovery(): void {
-  const discoverySocket = startLanDiscoveryResponder({ httpPort: config.port })
+function startLanDiscovery(httpPort = getLanHttpPort()): void {
+  const discoverySocket = startLanDiscoveryResponder({ httpPort })
   let initialScanStarted = false
   const runInitialScan = () => {
     if (initialScanStarted) return
@@ -334,10 +334,13 @@ export async function bootstrap() {
     host: config.host,
     unixSocketPath: config.unixSocketPath,
     unixSocketMode: config.unixSocketMode,
+    lanPort: config.lanPort,
+    lanHost: config.lanHost,
   })
   servers = listenResult.servers
+  if (listenResult.lanPort > 0) process.env.HERMES_LAN_HTTP_PORT = String(listenResult.lanPort)
   console.log(config.unixSocketPath
-    ? `[bootstrap] listening on Unix Socket ${config.unixSocketPath}`
+    ? `[bootstrap] listening on Unix Socket ${config.unixSocketPath}${listenResult.lanPort > 0 ? `; LAN peer http://${config.lanHost}:${listenResult.lanPort}` : ''}`
     : `[bootstrap] listening on ${config.host}:${config.port}`)
 
   setupTerminalWebSocket(servers)
@@ -427,14 +430,14 @@ export async function bootstrap() {
   const selectedLanAddress = selectLanIPv4Address('')
   const localIp = selectedLanAddress === '127.0.0.1' ? 'localhost' : selectedLanAddress
   if (config.fnos) {
-    console.log(`Server: Unix Socket ${config.unixSocketPath} (${config.publicBasePath})`)
+    console.log(`Server: Unix Socket ${config.unixSocketPath} (${config.publicBasePath})${listenResult.lanPort > 0 ? `; LAN peer http://${config.lanHost}:${listenResult.lanPort}` : ''}`)
   } else {
     console.log(`Server: http://localhost:${config.port} (LAN: http://${localIp}:${config.port})`)
   }
   console.log(`Log: ${config.appHome}/logs/server.log`)
   if (!config.fnos) logger.info('Server: http://localhost:%d (LAN: http://%s:%d)', config.port, localIp, config.port)
-  else logger.info('Server: Unix Socket %s (%s)', config.unixSocketPath, config.publicBasePath)
-  startLanDiscovery()
+  else logger.info('Server: Unix Socket %s (%s); LAN peer port=%d', config.unixSocketPath, config.publicBasePath, listenResult.lanPort)
+  startLanDiscovery(listenResult.lanPort || getLanHttpPort())
   refreshConfiguredProviderModelCatalogsInBackground('bootstrap')
 
   if (isDesktopRuntime()) {

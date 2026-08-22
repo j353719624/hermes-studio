@@ -8,12 +8,15 @@ export interface ListenOptions {
   host: string
   unixSocketPath?: string
   unixSocketMode?: number
+  lanPort?: number
+  lanHost?: string
 }
 
 export interface ListenResult {
   primary: Server
   servers: Server[]
   unixSocketPath: string
+  lanPort: number
 }
 
 function waitForListen(server: Server): Promise<Server> {
@@ -41,17 +44,34 @@ export async function listenForConfig(app: Koa, options: ListenOptions): Promise
   const socketPath = options.unixSocketPath?.trim() || ''
   if (!socketPath) {
     const primary = await listenTcp(app, options.port, options.host || '0.0.0.0')
-    return { primary, servers: [primary], unixSocketPath: '' }
+    const address = primary.address()
+    return {
+      primary,
+      servers: [primary],
+      unixSocketPath: '',
+      lanPort: typeof address === 'object' && address ? address.port : options.port,
+    }
   }
 
   const primary = await listenUnix(app, socketPath, options.unixSocketMode ?? 0o660)
+  const servers = [primary]
   try {
     // Some Studio services make authenticated loopback calls. Keep those on an
     // ephemeral loopback port while all user traffic stays on the Unix Socket.
     const internal = await listenTcp(app, 0, '127.0.0.1')
-    return { primary, servers: [primary, internal], unixSocketPath: socketPath }
+    servers.push(internal)
+
+    let lanPort = 0
+    if (options.lanPort !== undefined) {
+      const lan = await listenTcp(app, options.lanPort, options.lanHost || '0.0.0.0')
+      servers.push(lan)
+      const address = lan.address()
+      lanPort = typeof address === 'object' && address ? address.port : options.lanPort
+    }
+
+    return { primary, servers, unixSocketPath: socketPath, lanPort }
   } catch (err) {
-    primary.close()
+    await Promise.all(servers.map(server => new Promise<void>(resolve => server.close(() => resolve()))))
     await unlink(socketPath).catch(() => undefined)
     throw err
   }

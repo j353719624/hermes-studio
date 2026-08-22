@@ -1,6 +1,6 @@
 import dgram from 'dgram'
 import { networkInterfaces } from 'os'
-import { config } from '../config'
+import { config, getLanHttpPort } from '../config'
 import { logger } from './logger'
 import { deviceIdFromPublicKey, getPublicSystemInfo, type PublicSystemInfo } from './system-info'
 
@@ -106,15 +106,15 @@ function discoveryPortsForHttpPorts(httpPorts: number[]): number[] {
   return [...ports]
 }
 
-export function getLanEndpointKind(httpPort: number, currentPort = config.port): LanEndpointKind {
+export function getLanEndpointKind(httpPort: number, currentPort = getLanHttpPort()): LanEndpointKind {
   if (httpPort === 8748) return 'desktop'
   if (httpPort === 8648 || httpPort === currentPort) return 'web'
   return 'custom'
 }
 
-export function getDiscoveryHttpPorts(currentPort = config.port): number[] {
+export function getDiscoveryHttpPorts(currentPort = getLanHttpPort()): number[] {
   const configured = parsePortList(process.env.HERMES_LAN_DISCOVERY_HTTP_PORTS)
-  return [...new Set([...(configured.length ? configured : DEFAULT_HTTP_PORTS), currentPort])]
+  return [...new Set([...(configured.length ? configured : DEFAULT_HTTP_PORTS), ...(currentPort > 0 ? [currentPort] : [])])]
 }
 
 function ipv4ToInt(ip: string): number | null {
@@ -226,7 +226,7 @@ function normalizeRemoteAddress(value: string): string {
 
 export function getLanBackendUrl(
   remoteAddress = '',
-  httpPort = config.port,
+  httpPort = getLanHttpPort(),
   interfaces: LanIPv4Interface[] = getIpv4Interfaces(),
 ): string {
   const advertised = normalizeAdvertisedOrigin(config.lanAdvertiseUrl)
@@ -238,7 +238,7 @@ export function getLanBackendUrl(
 export function getLanBackendUrlForRequest(
   remoteAddress = '',
   requestOrigin = '',
-  httpPort = config.port,
+  httpPort = getLanHttpPort(),
   advertisedUrl = config.lanAdvertiseUrl,
   interfaces: LanIPv4Interface[] = getIpv4Interfaces(),
 ): string {
@@ -326,7 +326,7 @@ export function startLanDiscoveryResponder(options: StartResponderOptions = {}):
   if (!isLanDiscoveryEnabled()) return null
   if (responderSockets.length > 0) return responderSockets[0]
 
-  const httpPort = options.httpPort || config.port
+  const httpPort = options.httpPort ?? getLanHttpPort()
   const getSystemInfo = options.getSystemInfo || getPublicSystemInfo
   const discoveryPorts = discoveryPortsForHttpPorts([httpPort])
 

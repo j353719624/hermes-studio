@@ -6,7 +6,7 @@ import {
   revokeAppConnection,
 } from '../db/hermes/app-connections-store'
 import { findUserById } from '../db/hermes/users-store'
-import { config } from '../config'
+import { getLanHttpPort } from '../config'
 import { getLanBackendUrlForRequest } from '../services/lan-discovery'
 import { getAppRelayClient } from '../services/app-relay/client'
 import {
@@ -184,7 +184,7 @@ export async function createAppAuthorizationCodeController(ctx: Context) {
     type: APP_CONNECTION_QR_TYPE,
     version: APP_CONNECTION_QR_VERSION,
     connection_type: 'lan' as const,
-    backend_url: getLanBackendUrlForRequest(remoteAddress, requestOrigin, config.port),
+    backend_url: getLanBackendUrlForRequest(remoteAddress, requestOrigin, getLanHttpPort()),
     machine_id: await getDeviceId(),
     authorization_code: authorizationCode,
     expires_at: record.expires_at,

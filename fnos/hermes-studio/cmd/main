@@ -110,6 +110,8 @@ start_process() {
   export HERMES_WEB_UI_STOP_GATEWAYS_ON_SHUTDOWN=1
   export HERMES_AGENT_BRIDGE_STOP_ON_SHUTDOWN=1
   export HERMES_LAN_DISCOVERY_ENABLED=1
+  export HERMES_LAN_HOST=0.0.0.0
+  export HERMES_LAN_PORT=0
   export WORKSPACE_BASE="${PKGVAR}/workspace"
   export UPLOAD_DIR="${PKGVAR}/uploads"
   export NODE_PATH="${APPDEST}/node_modules"

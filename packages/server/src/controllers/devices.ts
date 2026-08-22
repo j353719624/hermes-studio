@@ -25,7 +25,7 @@ import { getDevicePairingCode, verifyDevicePairingCode } from '../services/devic
 import { createDeviceSignature, deviceIdFromPublicKey, getPublicSystemInfo, verifyDeviceSignature } from '../services/system-info'
 import { describeLanJsonPostError, getLanJson, postLanJson } from '../services/lan-http-client'
 import { checkPairing, recordPairingFailure } from '../services/login-limiter'
-import { config } from '../config'
+import { config, getLanHttpPort } from '../config'
 import { randomUUID } from 'crypto'
 
 const REQUEST_TTL_MS = 5 * 60 * 1000
@@ -228,7 +228,7 @@ function devicePairingOrigin(ctx: any): string {
   const host = requestHost(ctx)
   const requestOrigin = host ? `${requestProtocol(ctx)}://${host}` : ''
   const remoteAddress = String(ctx.req?.socket?.remoteAddress || ctx.ip || ctx.request?.ip || '')
-  return getLanBackendUrlForRequest(remoteAddress, requestOrigin, config.port)
+  return getLanBackendUrlForRequest(remoteAddress, requestOrigin, getLanHttpPort())
 }
 
 function responseMs(startedAt: number): number {
@@ -284,13 +284,14 @@ async function requestPairingWithDevice(target: LanDeviceInfo, pairingCode = '')
   const nonce = randomUUID()
   const localInfo = await getPublicSystemInfo()
   const signature = await createDeviceSignature(nonce, timestamp)
+  const lanPort = getLanHttpPort()
   const body = {
     ...localInfo,
-    http_port: config.port,
-    httpPort: config.port,
-    port: config.port,
-    endpoint_kind: getLanEndpointKind(config.port),
-    endpointKind: getLanEndpointKind(config.port),
+    http_port: lanPort,
+    httpPort: lanPort,
+    port: lanPort,
+    endpoint_kind: getLanEndpointKind(lanPort),
+    endpointKind: getLanEndpointKind(lanPort),
     deviceId: localInfo.device_id,
     devicePublicKey: localInfo.device_public_key,
     computerName: localInfo.computer_name,
@@ -319,10 +320,11 @@ async function requestPairingWithDevice(target: LanDeviceInfo, pairingCode = '')
 export async function deviceLinkInfoController(ctx: any) {
   ctx.set('Access-Control-Allow-Origin', '*')
   const info = await getPublicSystemInfo()
+  const lanPort = getLanHttpPort()
   ctx.body = {
     ...info,
-    http_port: config.port,
-    endpoint_kind: getLanEndpointKind(config.port),
+    http_port: lanPort,
+    endpoint_kind: getLanEndpointKind(lanPort),
     relay_url: config.remoteRelay.url,
     app_relay: {
       protocol: 'socket.io',
