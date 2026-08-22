@@ -20,7 +20,7 @@ This fork adapts that experience to 飞牛 fnOS and distributes it as a `.fpk` a
 
 | Item | Value |
 | --- | --- |
-| Hermes Studio | `0.6.44` |
+| Hermes Studio | `0.6.45` |
 | Target | 飞牛 fnOS x86 |
 | Hermes Runtime | `0.20.4` (bundled) |
 | Package format | `.fpk` |
@@ -39,7 +39,7 @@ The feature set is constrained by fnOS and the bundled runtime. Desktop-only fun
 
 ## Install on fnOS
 
-1. Download the `hermes-studio-0.6.44-linux-x64.fpk` package from the repository release.
+1. Download the `hermes-studio-0.6.45-linux-x64.fpk` package from the repository release.
 2. In fnOS App Center, choose **Manual Install** and select the FPK.
 3. Open **Hermes Studio** after installation and configure the provider, model, profile, and workspace in the web console.
 
@@ -59,23 +59,9 @@ The package uses fnOS's `${TRIM_PKGVAR}` directory as its persistent data root. 
 
 The runtime is installed inside the application data directory and is checked before startup. If a newly updated runtime fails validation, the lifecycle script attempts to restore the previous runtime.
 
-## Build the fnOS package
+## For contributors
 
-The build target is fnOS x86. Windows builds use WSL for Linux binaries and native modules.
-
-```bash
-npm install
-npm run build:fnos
-npm run verify:fnos
-```
-
-The generated package is written to:
-
-```text
-build/fnos/output/hermes-studio-0.6.44-linux-x64.fpk
-```
-
-`verify:fnos` checks the manifest, gateway assets, bundled runtime, native dependencies, skills, package-user permission, and the final FPK contents. Keep the package version in `package.json` and `fnos/hermes-studio/manifest` aligned; this fnOS release remains `0.6.44`.
+This repository includes the fnOS packaging and build configuration. Development and packaging details are kept with the project scripts and fnOS package files.
 
 ## Repository scope
 
