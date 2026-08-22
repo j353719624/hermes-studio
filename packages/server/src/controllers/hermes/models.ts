@@ -46,6 +46,69 @@ function enabledMoaPresetNames(config: any): string[] {
   return [defaultPreset, ...enabled.filter(name => name !== defaultPreset)]
 }
 
+function hasMoaPresetConfig(config: any): boolean {
+  const presets = config?.moa?.presets
+  return !!presets && typeof presets === 'object' && !Array.isArray(presets) && Object.keys(presets).length > 0
+}
+
+function buildInitialMoaConfig(
+  groups: AvailableGroup[],
+  defaultProvider: string,
+  defaultModel: string,
+): Record<string, any> | null {
+  const candidates = groups
+    .filter(group => group.provider !== 'moa' && group.models.length > 0)
+    .flatMap(group => group.models.slice(0, 2).map(model => ({ provider: group.provider, model })))
+
+  if (candidates.length === 0) return null
+
+  const preferred = defaultProvider && defaultModel
+    ? candidates.find(candidate => candidate.provider === defaultProvider && candidate.model === defaultModel)
+    : undefined
+  const ordered = preferred
+    ? [preferred, ...candidates.filter(candidate => candidate !== preferred)]
+    : candidates
+  const unique = ordered.filter((candidate, index, list) =>
+    list.findIndex(item => item.provider === candidate.provider && item.model === candidate.model) === index,
+  )
+  const aggregator = unique[0]
+  if (!aggregator) return null
+
+  return {
+    default_preset: 'default',
+    active_preset: '',
+    presets: {
+      default: {
+        enabled: true,
+        reference_models: unique.slice(0, 3),
+        aggregator,
+        reference_temperature: 0.6,
+        aggregator_temperature: 0.4,
+        max_tokens: 4096,
+      },
+    },
+  }
+}
+
+async function ensureInitialMoaConfig(
+  profile: string,
+  config: Record<string, any>,
+  groups: AvailableGroup[],
+  defaultProvider: string,
+  defaultModel: string,
+): Promise<void> {
+  if (hasMoaPresetConfig(config)) return
+
+  const initialMoa = buildInitialMoaConfig(groups, defaultProvider, defaultModel)
+  if (!initialMoa) return
+
+  await updateConfigYamlForProfile(profile, (current) => {
+    if (hasMoaPresetConfig(current)) return current
+    return { ...current, moa: initialMoa }
+  })
+  config.moa = initialMoa
+}
+
 function isSafeAliasKey(value: string): boolean {
   const trimmed = value.trim()
   return !!trimmed && trimmed.length <= 512 && !RESERVED_ALIAS_KEYS.has(trimmed)
@@ -519,6 +582,7 @@ async function buildAvailableForProfile(
     currentDefault = currentDefault || fallback.default
   }
 
+  await ensureInitialMoaConfig(profile, config, groups, currentDefaultProvider, currentDefault)
   const moaPresets = enabledMoaPresetNames(config)
   if (moaPresets.length > 0) {
     addGroup(

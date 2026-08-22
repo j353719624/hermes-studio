@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { access, chmod, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { config } from '../../config'
@@ -268,6 +268,23 @@ class FnosBrowserConfigStore {
     document.profiles.splice(index, 1)
     if (document.activeProfileId === profileId) document.activeProfileId = document.profiles[0].id
     await this.persist()
+    return this.state()
+  }
+
+  async clear(profileId: string, kind: unknown): Promise<FnosBrowserConfigState> {
+    await this.initialize()
+    const profile = this.requireProfile(profileId)
+    const requested = String(kind || '').trim()
+    if (requested === 'cache') {
+      for (const name of ['Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'GrShaderCache', 'ShaderCache']) {
+        await rm(join(profile.sessionPath, name), { recursive: true, force: true })
+      }
+    } else if (requested === 'site-data') {
+      await rm(profile.sessionPath, { recursive: true, force: true })
+      await ensureDirectory(profile.sessionPath)
+    } else if (requested !== 'permission-audit') {
+      throw new Error('不支持的清理类型')
+    }
     return this.state()
   }
 

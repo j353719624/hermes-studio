@@ -56,4 +56,11 @@ export function deleteFnosBrowserProfile(profileId: string): Promise<FnosBrowser
   })
 }
 
+export function clearFnosBrowserProfileData(profileId: string, kind: 'cache' | 'site-data' | 'permission-audit'): Promise<FnosBrowserState> {
+  return request<FnosBrowserState>(`/api/hermes/browser/config/profiles/${encodeURIComponent(profileId)}/clear`, {
+    method: 'POST',
+    body: JSON.stringify({ kind }),
+  })
+}
+
 export type FnosBrowserDownload = DesktopBrowserDownload

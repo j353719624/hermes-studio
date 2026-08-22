@@ -4,6 +4,7 @@ import { NButton, NCard, NInput, NModal, NSelect, NSwitch, NTabPane, NTabs, useD
 import { useI18n } from 'vue-i18n'
 import {
   activateFnosBrowserProfile,
+  clearFnosBrowserProfileData,
   createFnosBrowserProfile,
   deleteFnosBrowserProfile,
   getFnosBrowserConfig,
@@ -169,6 +170,26 @@ function deleteProfile(profileId: string): void {
   })
 }
 
+function clearProfileData(kind: 'cache' | 'site-data' | 'permission-audit'): void {
+  const profileId = settingsProfileId.value
+  if (!profileId) return
+  const clear = () => run(async () => {
+    applyState(await clearFnosBrowserProfileData(profileId, kind))
+    message.success(t('browser.dataCleared'))
+  })
+  if (kind !== 'site-data') {
+    void clear()
+    return
+  }
+  dialog.warning({
+    title: t('browser.clearSiteData'),
+    content: t('browser.clearSiteDataWarning'),
+    positiveText: t('common.confirm'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: clear,
+  })
+}
+
 onMounted(async () => {
   if (canPickFnosFolder) void trimApp.ready().catch(() => undefined)
   try {
@@ -181,18 +202,13 @@ onMounted(async () => {
 
 <template>
   <section class="browser-settings-page">
-    <header class="page-header">
-      <div>
-        <h2 class="header-title">{{ t('browser.settings') }}</h2>
-        <p class="header-hint">{{ t('browser.fnosConfigHint') }}</p>
-      </div>
-      <NButton type="primary" size="small" :disabled="busy" @click="openCreateProfile">＋ {{ t('browser.addProfile') }}</NButton>
-    </header>
-
     <div v-if="loadError" class="unavailable">{{ loadError }}</div>
     <NCard v-else class="settings-card" :bordered="false">
       <NTabs type="line" animated>
         <NTabPane name="profiles" :tab="t('browser.profiles')">
+          <div class="tab-toolbar">
+            <NButton type="primary" size="small" :disabled="busy" @click="openCreateProfile">＋ {{ t('browser.addProfile') }}</NButton>
+          </div>
           <div v-if="state" class="profiles-grid">
             <article v-for="profile in state.profiles" :key="profile.id" class="profile-card" :class="{ active: profile.id === state.activeProfileId }">
               <div class="profile-card-header">
@@ -218,13 +234,17 @@ onMounted(async () => {
 
         <NTabPane name="downloads" :tab="t('browser.downloads')">
           <label class="profile-filter">{{ t('browser.profiles') }}<NSelect v-model:value="settingsProfileId" :options="profileOptions" /></label>
-          <p class="hint">{{ t('browser.fnosConfigOnly') }}</p>
           <div v-if="!selectedDownloads.length" class="empty">{{ t('common.noData') }}</div>
         </NTabPane>
 
         <NTabPane name="permissions" :tab="t('browser.permissions')">
           <label class="profile-filter">{{ t('browser.profiles') }}<NSelect v-model:value="settingsProfileId" :options="profileOptions" /></label>
-          <p class="hint permissions-hint">{{ t('browser.fnosPermissionsHint') }}</p>
+          <p class="hint permissions-hint">{{ t('browser.permissionsHint') }}</p>
+          <div class="form-actions">
+            <NButton :disabled="busy" @click="clearProfileData('cache')">{{ t('browser.clearCache') }}</NButton>
+            <NButton :disabled="busy" @click="clearProfileData('permission-audit')">{{ t('browser.clearPermissionAudit') }}</NButton>
+            <NButton type="error" ghost :disabled="busy" @click="clearProfileData('site-data')">{{ t('browser.clearSiteData') }}</NButton>
+          </div>
           <div v-if="!selectedPermissions.length" class="empty">{{ t('common.noData') }}</div>
         </NTabPane>
       </NTabs>
@@ -256,11 +276,10 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .browser-settings-page { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--text-color); }
-.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 12px; border-bottom: 1px solid var(--border-color); }
-.header-title { margin: 0; color: var(--text-primary); font-size: 20px; font-weight: 600; }
-.header-hint, .hint { margin: 6px 0 0; color: var(--text-color-3); font-size: 12px; line-height: 1.5; }
-.settings-card { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px 20px; }
-.settings-card :deep(.n-card__content) { max-width: 1120px; width: 100%; margin: 0 auto; }
+.hint { margin: 6px 0 0; color: var(--text-color-3); font-size: 12px; line-height: 1.5; }
+.settings-card { flex: 1; min-height: 0; overflow: auto; padding: 0 0 20px; }
+.settings-card :deep(.n-card__content) { max-width: none; width: 100%; margin: 0; padding: 0 18px 20px; }
+.tab-toolbar { display: flex; justify-content: flex-end; margin: 14px 0; }
 .profiles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .profile-card { min-width: 0; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); }
 .profile-card.active { border-color: rgba(var(--accent-primary-rgb), .55); box-shadow: inset 0 0 0 1px rgba(var(--accent-primary-rgb), .1); }
@@ -269,5 +288,5 @@ onMounted(async () => {
 .active-badge { padding: 2px 8px; border-radius: 10px; background: rgba(var(--accent-primary-rgb), .12); color: var(--accent-primary); font-size: 11px; }
 .profile-card-body { flex: 1; display: grid; gap: 12px; }.profile-info-row { min-width: 0; display: grid; gap: 4px; }.profile-info-row > span { color: var(--text-muted); font-size: 12px; }.profile-info-row code { overflow: hidden; color: var(--text-secondary); font: 11px var(--font-code, monospace); text-overflow: ellipsis; white-space: nowrap; }
 .profile-preferences { display: flex; flex-wrap: wrap; gap: 6px; }.profile-preferences span { padding: 3px 7px; border-radius: 4px; background: rgba(var(--accent-primary-rgb), .08); color: var(--text-secondary); font-size: 11px; }
-.profile-card-actions { justify-content: flex-start; margin-top: 14px; }.profile-filter { display: grid; gap: 6px; max-width: 320px; color: var(--text-secondary); font-size: 12px; }.empty { padding: 32px 12px; color: var(--text-color-3); text-align: center; }.permissions-hint { margin: 16px 0; }.settings-form { display: grid; gap: 14px; }.settings-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }.path-row { display: flex; gap: 8px; }.path-row .n-input { flex: 1; }.switch-row { display: flex !important; align-items: center; justify-content: space-between; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }.unavailable { padding: 40px; text-align: center; color: var(--text-color-3); }
+.profile-card-actions { justify-content: flex-start; margin-top: 14px; }.profile-filter { display: grid; gap: 6px; max-width: 320px; color: var(--text-secondary); font-size: 12px; }.empty { padding: 32px 12px; color: var(--text-color-3); text-align: center; }.permissions-hint { margin: 16px 0; }.form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }.settings-form { display: grid; gap: 14px; }.settings-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }.path-row { display: flex; gap: 8px; }.path-row .n-input { flex: 1; }.switch-row { display: flex !important; align-items: center; justify-content: space-between; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }.unavailable { padding: 40px; text-align: center; color: var(--text-color-3); }
 </style>

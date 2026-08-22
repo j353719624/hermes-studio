@@ -28,3 +28,7 @@ export async function activate(ctx: Context): Promise<void> {
 export async function remove(ctx: Context): Promise<void> {
   ctx.body = await fnosBrowserConfigStore.delete(String(ctx.params.profileId || ''))
 }
+
+export async function clear(ctx: Context): Promise<void> {
+  ctx.body = await fnosBrowserConfigStore.clear(String(ctx.params.profileId || ''), body(ctx).kind)
+}
