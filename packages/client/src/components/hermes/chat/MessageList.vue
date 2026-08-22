@@ -23,6 +23,7 @@ import { useToolTraceVisibility } from "@/composables/useToolTraceVisibility";
 import { openSubagentStream, subagentIdFromToolCall } from "@/utils/hermes/subagent-stream";
 import { messageScrollPositionKey, rememberMessageScrollPosition } from "./message-scroll-position";
 import { chatSessionAgentAvatar } from "@/utils/chat-agent-avatar";
+import { parseThinking } from "@/utils/thinking-parser";
 
 const props = withDefaults(defineProps<{
   approvalPortalToBody?: boolean
@@ -112,6 +113,32 @@ const showThinkingIndicator = computed(() =>
   showReasoningUi && chatStore.isRunActive && !hasCompletedAssistantReply.value,
 );
 
+function isThinkingOnlyAssistant(message: Message): boolean {
+  if (message.role !== "assistant") return false;
+  const parsed = parseThinking(message.content || "", { streaming: !!message.isStreaming });
+  return !parsed.body.trim() && (!!message.reasoning?.trim() || parsed.hasThinking);
+}
+
+function mergeThinkingMessages(messages: Message[]): Message[] {
+  const merged: Message[] = [];
+  for (const message of messages) {
+    const previous = merged.at(-1);
+    if (!previous || !isThinkingOnlyAssistant(previous) || !isThinkingOnlyAssistant(message)) {
+      merged.push(message);
+      continue;
+    }
+    merged[merged.length - 1] = {
+      ...previous,
+      content: [previous.content, message.content].filter(Boolean).join("\n\n"),
+      reasoning: [previous.reasoning, message.reasoning].filter(Boolean).join("\n\n") || undefined,
+      timestamp: message.timestamp,
+      isStreaming: !!(previous.isStreaming || message.isStreaming),
+      finishReason: message.finishReason ?? previous.finishReason,
+    };
+  }
+  return merged;
+}
+
 const currentToolCalls = computed(() => {
   const msgs = chatStore.messages;
   // Slash commands are also user input boundaries for the live tool strip.
@@ -147,6 +174,10 @@ const liveReasoningDetail = computed<{
       break;
     }
   }
+
+  // Thinking-only messages are merged into one card in the list. Keep the
+  // separate row as a status line instead of rendering the latest segment twice.
+  if (messages.slice(lastInputIdx + 1).some(isThinkingOnlyAssistant)) return null;
 
   // Keep the newest assistant reasoning segment visible after it seals at a
   // tool boundary. A later reasoning segment replaces it only when its first
@@ -191,7 +222,7 @@ const emptyState = computed(() => {
 const displayMessages = computed(() => {
   const messages = chatStore.messages;
   const currentToolIds = new Set(currentToolCalls.value.map((tool) => tool.id));
-  return messages
+  const visibleMessages = messages
     .filter((m, index) => {
       if (m.role === "tool") {
         return toolTraceVisible.value && !!m.toolName && !(chatStore.isRunActive && currentToolIds.has(m.id));
@@ -230,6 +261,7 @@ const displayMessages = computed(() => {
       }
       return message;
     });
+  return mergeThinkingMessages(visibleMessages);
 });
 
 function forkDividerId(sessionId: string): string {

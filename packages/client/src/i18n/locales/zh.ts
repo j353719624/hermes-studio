@@ -8,7 +8,7 @@ export default {
     askBeforeDownload: '每次下载前询问保存位置', downloadConflictPolicy: '文件重名处理', uniquifyDownloads: '自动生成唯一文件名', askOnConflict: '文件已存在时询问', downloads: '下载记录', downloadStateProgressing: '下载中', downloadStateCompleted: '已完成', downloadStateCancelled: '已取消', downloadStateInterrupted: '已中断', downloadStateBlocked: '已阻止', permissions: '网站权限', permissionsHint: '远程页面权限默认全部拒绝，并在此处保留审计记录。', blocked: '已阻止',
     profileSwitchTitle: '切换浏览器 Profile？', profileSwitchWarning: '可能中断 {agents} 个 Agent 操作、{downloads} 个下载任务和 {annotations} 个批注任务。',
     deleteProfileTitle: '删除浏览器 Profile？', deleteProfileWarning: '托管的 Profile 数据将移入系统废纸篓，自定义目录不会被删除。', clearCache: '清除缓存', clearPermissionAudit: '清除权限记录', clearSiteData: '清除站点数据', clearSiteDataWarning: '这会退出所选 Profile 中的网站登录，并清除 Cookie 和本地存储。', dataCleared: '浏览器数据已清除', loadFailed: '内置浏览器启动失败',
-    fnosAddressPlaceholder: '输入网址后回车', fnosConnected: '本机浏览器已连接', fnosConnecting: '正在连接本机浏览器', fnosStarting: '正在启动本机浏览器…', fnosStreamFailed: '本机浏览器画面连接失败', fnosLocalHint: '浏览器运行在飞牛 OS 本机，数据保存在应用数据目录中。', fnosClose: '关闭浏览器', fnosClosed: '本机浏览器已关闭',
+    fnosAddressPlaceholder: '输入网址后回车', fnosConnected: 'NAS Chrome 已连接', fnosConnecting: '正在连接 NAS Chrome', fnosStarting: '正在探测 NAS Chrome…', fnosStreamFailed: 'NAS Chrome 画面连接失败', fnosLocalHint: '浏览器运行在飞牛 OS 的 Chrome/Chromium 中，使用 NAS 上现有的浏览器标签页。', fnosClose: '关闭当前标签页', fnosClosed: '当前标签页已关闭',
   },
   // 登录
   login: {

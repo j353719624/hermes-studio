@@ -2068,8 +2068,14 @@ function categoryToolCatalog(query = '') {
     .map(tool => ({ name: tool.name, description: tool.description }))
 }
 
+function normalizeCategoryToolName(name) {
+  let value = String(name || '').trim()
+  if (value.toLowerCase().startsWith('tool:')) value = value.slice(5).trim()
+  return resolveToolName(value)
+}
+
 function categoryToolByName(name) {
-  const resolved = resolveToolName(String(name || '').trim())
+  const resolved = normalizeCategoryToolName(name)
   return activeToolsetTools().find(tool => tool.name === resolved) || null
 }
 
@@ -2098,7 +2104,8 @@ function isToolCallable(name) {
 async function callCategoryToolset(args = {}) {
   const category = CATEGORY_TOOLSETS[ACTIVE_TOOLSET]
   if (!category) return errorText(`No compact category toolset is available for '${ACTIVE_TOOLSET}'.`)
-  if (args.action === 'list') {
+  const action = String(args.action || '').trim().toLowerCase()
+  if (action === 'list') {
     const catalog = categoryToolCatalog(args.query)
     return jsonText({
       toolset: ACTIVE_TOOLSET,
@@ -2108,9 +2115,11 @@ async function callCategoryToolset(args = {}) {
       next: `Call ${category.name} with action=describe and an exact tool name before action=call when its parameters are not already known.`,
     })
   }
-  const target = categoryToolByName(args.tool)
-  if (!target) return errorText(`Unknown '${ACTIVE_TOOLSET}' tool: ${String(args.tool || '')}. Call ${category.name} with action=list first.`)
-  if (args.action === 'describe') {
+  if (!['describe', 'call'].includes(action)) return errorText('Invalid category toolset action. Allowed: list, describe, call.')
+  const requestedTool = args.tool ?? args.name ?? args.operation
+  const target = categoryToolByName(requestedTool)
+  if (!target) return errorText(`Unknown '${ACTIVE_TOOLSET}' tool: ${String(requestedTool || '')}. Call ${category.name} with action=list first.`)
+  if (action === 'describe') {
     return jsonText({
       toolset: ACTIVE_TOOLSET,
       name: target.name,
@@ -2118,11 +2127,15 @@ async function callCategoryToolset(args = {}) {
       inputSchema: target.inputSchema,
     })
   }
-  if (args.action === 'call') {
-    if (!isRecord(args.arguments)) return errorText('arguments must be an object when action=call.')
-    return await callTool(target.name, args.arguments)
+  if (action === 'call') {
+    let nestedArguments = args.arguments
+    if (typeof nestedArguments === 'string') {
+      try { nestedArguments = JSON.parse(nestedArguments) } catch { return errorText('arguments must be a JSON object when passed as a string.') }
+    }
+    if (nestedArguments === undefined || nestedArguments === null) nestedArguments = {}
+    if (!isRecord(nestedArguments)) return errorText('arguments must be an object when action=call.')
+    return await callTool(target.name, nestedArguments)
   }
-  return errorText('Invalid category toolset action. Allowed: list, describe, call.')
 }
 
 async function callTool(name, args = {}) {

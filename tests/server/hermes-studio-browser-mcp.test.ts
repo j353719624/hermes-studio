@@ -216,5 +216,15 @@ describe('hermes-studio fnOS Chrome CDP browser MCP toolset', () => {
     })
     expect(screenshot.result.isError).not.toBe(true)
     expect(screenshot.result.content.some((item: any) => item.type === 'image' && item.mimeType === 'image/png')).toBe(true)
+
+    const normalizedCall = await rpc(6, 'tools/call', {
+      name: 'hermes_studio_browser_toolset',
+      arguments: {
+        action: 'call',
+        tool: 'tool: hermes_studio_browser_tabs',
+        arguments: '{"action":"list"}',
+      },
+    })
+    expect(normalizedCall.result.isError).not.toBe(true)
   })
 })
