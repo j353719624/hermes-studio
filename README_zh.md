@@ -19,7 +19,7 @@ Hermes Studio 是面向 Hermes Agent 的应用、移动端伴侣与 Web 控制�
 
 | 项目 | 内容 |
 | --- | --- |
-| Hermes Studio | `0.6.44` |
+| Hermes Studio | `0.6.45` |
 | 目标平台 | 飞牛 fnOS x86 |
 | Hermes Runtime | `0.20.4`（内置） |
 | 安装包格式 | `.fpk` |
@@ -38,7 +38,7 @@ Hermes Studio 是面向 Hermes Agent 的应用、移动端伴侣与 Web 控制�
 
 ## 在飞牛 fnOS 上安装
 
-1. 从仓库 Release 下载 `hermes-studio-0.6.44-linux-x64.fpk`。
+1. 从仓库 Release 下载 `hermes-studio-0.6.45-linux-x64.fpk`。
 2. 打开 fnOS 应用中心，选择**手动安装**并导入 FPK。
 3. 安装完成后打开 **Hermes Studio**，在 Web 控制台中配置供应商、模型、配置文件和工作区。
 
@@ -58,23 +58,9 @@ Hermes Studio 是面向 Hermes Agent 的应用、移动端伴侣与 Web 控制�
 
 运行时安装在应用数据目录中，启动前会进行完整性检查。新运行时校验失败时，生命周期脚本会尝试恢复上一个可用版本。
 
-## 构建 fnOS 安装包
+## 贡献与构建
 
-构建目标为 fnOS x86。在 Windows 上构建时，需要通过 WSL 准备 Linux 二进制文件和原生模块。
-
-```bash
-npm install
-npm run build:fnos
-npm run verify:fnos
-```
-
-生成的 FPK 位于：
-
-```text
-build/fnos/output/hermes-studio-0.6.44-linux-x64.fpk
-```
-
-`verify:fnos` 会检查 manifest、网关资源、内置运行时、原生依赖、技能文件、package 用户权限以及最终 FPK 内容。`package.json` 和 `fnos/hermes-studio/manifest` 中的版本必须保持一致；当前 fnOS 发布版本固定为 `0.6.44`。
+本仓库包含 fnOS 适配代码、应用打包配置和构建脚本。开发与打包细节随项目脚本及 fnOS 应用文件维护。
 
 ## 仓库范围
 
