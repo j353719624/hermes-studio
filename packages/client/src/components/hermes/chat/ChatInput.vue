@@ -956,7 +956,7 @@ function focusComposer() {
   nextTick(() => textareaRef.value?.focus())
 }
 
-defineExpose({ addFiles, addBrowserAttachment, focusComposer })
+defineExpose({ addFiles, focusComposer })
 
 // --- Send ---
 
