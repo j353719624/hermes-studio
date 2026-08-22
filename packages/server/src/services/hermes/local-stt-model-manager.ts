@@ -16,6 +16,7 @@ const DEFAULT_GITHUB_REPO = 'EKKOLearnAI/hermes-studio'
 const MODEL_MANIFEST_FILE = 'model-manifest.json'
 const MODEL_SCHEMA = 1
 const TRANSCRIBE_TIMEOUT_MS = 120_000
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 180_000
 const LOCAL_STT_SAMPLE_RATE = 16_000
 const DEFAULT_RUNTIME_IDLE_TIMEOUT_MS = 60_000
 const DEFAULT_STREAM_SESSION_IDLE_TIMEOUT_MS = 120_000
@@ -370,8 +371,29 @@ function updateJob(job: LocalSttModelDownloadJob, patch: Partial<LocalSttModelDo
   Object.assign(job, patch, { updatedAt: new Date().toISOString() })
 }
 
+function downloadTimeoutMs(): number {
+  return positiveIntegerEnv('HERMES_LOCAL_STT_DOWNLOAD_TIMEOUT_MS', DEFAULT_DOWNLOAD_TIMEOUT_MS)
+}
+
+function downloadSources(preferred: LocalSttModelDownloadSource): LocalSttModelDownloadSource[] {
+  return preferred === 'cf' ? ['cf', 'github'] : ['github', 'cf']
+}
+
 function downloadFile(url: string, target: string, job: LocalSttModelDownloadJob, redirects = 5): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false
+    let output: ReturnType<typeof createWriteStream> | null = null
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      output?.destroy()
+      rejectPromise(error)
+    }
+    const succeed = () => {
+      if (settled) return
+      settled = true
+      resolvePromise()
+    }
     const parsed = new URL(url)
     const getter = parsed.protocol === 'http:' ? httpGet : httpsGet
     const request = getter(parsed, response => {
@@ -384,13 +406,13 @@ function downloadFile(url: string, target: string, job: LocalSttModelDownloadJob
       }
       if (status < 200 || status >= 300) {
         response.resume()
-        rejectPromise(new Error(`GET ${url} returned ${status}`))
+        fail(new Error(`GET ${url} returned ${status}`))
         return
       }
 
       const totalBytes = Number(response.headers['content-length']) || LOCAL_STT_MODEL_ARCHIVE_SIZE
       let receivedBytes = 0
-      const output = createWriteStream(target)
+      output = createWriteStream(target)
 
       response.on('data', chunk => {
         receivedBytes += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk)
@@ -401,13 +423,13 @@ function downloadFile(url: string, target: string, job: LocalSttModelDownloadJob
           totalBytes,
         })
       })
-      response.on('error', rejectPromise)
-      output.on('error', rejectPromise)
-      output.on('finish', () => output.close(() => resolvePromise()))
+      response.on('error', error => fail(error instanceof Error ? error : new Error(String(error))))
+      output.on('error', fail)
+      output.on('finish', () => output?.close(succeed))
       response.pipe(output)
     })
-    request.setTimeout(30_000, () => request.destroy(new Error('Local STT model download timed out')))
-    request.on('error', error => rejectPromise(new Error(`GET ${url} failed: ${error.message}`)))
+    request.setTimeout(downloadTimeoutMs(), () => request.destroy(new Error(`Local STT model download timed out after ${Math.round(downloadTimeoutMs() / 1000)}s`)))
+    request.on('error', error => fail(new Error(`GET ${url} failed: ${error.message}`)))
   })
 }
 
@@ -688,8 +710,20 @@ async function installLocalSttModel(job: LocalSttModelDownloadJob): Promise<void
   mkdirSync(tempRoot, { recursive: true })
 
   try {
-    updateJob(job, { stage: 'resolve' })
-    await downloadFile(localSttModelAssetUrl(job.source), archive, job)
+    const failures: string[] = []
+    let downloaded = false
+    for (const source of downloadSources(job.source)) {
+      updateJob(job, { source, stage: 'resolve', error: '' })
+      try {
+        await downloadFile(localSttModelAssetUrl(source), archive, job)
+        downloaded = true
+        break
+      } catch (error) {
+        rmSync(archive, { force: true })
+        failures.push(`${source}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (!downloaded) throw new Error(`All local STT model download sources failed: ${failures.join(' | ')}`)
 
     updateJob(job, { stage: 'verify', percent: 100 })
     const actualSha256 = await sha256File(archive)
