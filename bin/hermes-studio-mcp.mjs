@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { realpath, readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import WebSocket from 'ws'
 
 const DEFAULT_PORT = process.env.HERMES_WEB_UI_PORT || process.env.PORT || '8648'
 const DEFAULT_BASE_URL = `http://127.0.0.1:${DEFAULT_PORT}`
@@ -57,6 +59,12 @@ Environment:
   HERMES_WEB_UI_TOKEN     Optional explicit API token.
   AUTH_TOKEN              Optional explicit API token fallback.
   HERMES_MCP_TOOLSET      Tool category to expose: api, browser, devices, or use. Default: api.
+  HERMES_BROWSER_CDP_URL  fnOS Chrome DevTools endpoint. Overrides automatic discovery.
+  HERMES_BROWSER_CDP_PORT  One local CDP port to try before the fallback ports.
+  HERMES_BROWSER_CDP_PORTS Comma-separated local CDP ports to try before the fallback ports.
+
+When no URL is configured, local Chrome/Chromium processes are checked for
+--remote-debugging-port first. Common ports 16002, 9222, and 9229 are only fallbacks.
 
 When run without options, this process waits for MCP JSON-RPC messages on stdin.
 `)
@@ -569,8 +577,447 @@ function withAuthArgs(args, options = {}) {
   }
 }
 
-const BROWSER_CLIENT_ID = `${SERVER_NAME}:${process.pid}:${randomUUID()}`
-let cachedBrowserSession = null
+const DEFAULT_BROWSER_CDP_URL = 'http://127.0.0.1:16002'
+const DEFAULT_BROWSER_CDP_PORTS = [16002, 9222, 9229]
+const CDP_COMMAND_TIMEOUT_MS = 20_000
+const CDP_DISCOVERY_TIMEOUT_MS = 800
+const MAX_SNAPSHOT_CACHE = 32
+const snapshotCache = new Map()
+let detectedBrowserCdpUrl = ''
+
+function normalizeBrowserCdpUrl(value) {
+  const parsed = new URL(String(value).trim())
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('HERMES_BROWSER_CDP_URL must use http:// or https://')
+  return parsed.toString().replace(/\/$/, '')
+}
+
+function configuredBrowserCdpPorts() {
+  const configuredPorts = [
+    ...String(process.env.HERMES_BROWSER_CDP_PORTS || '').split(','),
+    String(process.env.HERMES_BROWSER_CDP_PORT || ''),
+    ...DEFAULT_BROWSER_CDP_PORTS.map(String),
+  ]
+  return [...new Set(configuredPorts.map(value => Number.parseInt(value.trim(), 10)).filter(port => port >= 1 && port <= 65535))]
+}
+
+async function runningChromeCdpPorts() {
+  if (process.platform !== 'linux') return []
+  try {
+    const entries = await readdir('/proc', { withFileTypes: true })
+    const ports = new Set()
+    await Promise.all(entries
+      .filter(entry => entry.isDirectory() && /^\d+$/.test(entry.name))
+      .map(async entry => {
+        try {
+          const commandLine = (await readFile(`/proc/${entry.name}/cmdline`, 'utf8')).replaceAll('\0', ' ')
+          let executablePath = ''
+          try { executablePath = await realpath(`/proc/${entry.name}/exe`) } catch { /* Process may restrict /proc access. */ }
+          const isChromeProcess = /(?:chrome|chromium)/i.test(executablePath) || /(?:^|\s)(?:chrome|chromium)(?:\s|$)/i.test(commandLine)
+          if (!isChromeProcess) return
+          for (const match of commandLine.matchAll(/(?:^|\s)--remote-debugging-port(?:=|\s+)(\d+)(?:\s|$)/g)) {
+            const port = Number.parseInt(match[1], 10)
+            if (port >= 1 && port <= 65535) ports.add(port)
+          }
+        } catch {
+          // A process may exit or hide its cmdline while discovery is running.
+        }
+      }))
+    return [...ports]
+  } catch {
+    return []
+  }
+}
+
+async function browserCdpCandidates() {
+  const configuredUrl = String(process.env.HERMES_BROWSER_CDP_URL || '').trim()
+  if (configuredUrl) return [normalizeBrowserCdpUrl(configuredUrl)]
+  const uniquePorts = [...new Set([
+    ...(await runningChromeCdpPorts()),
+    ...configuredBrowserCdpPorts(),
+  ])]
+  return uniquePorts.map(port => `http://127.0.0.1:${port}`)
+}
+
+function browserCdpUrl() {
+  const configuredUrl = String(process.env.HERMES_BROWSER_CDP_URL || '').trim()
+  if (configuredUrl) return normalizeBrowserCdpUrl(configuredUrl)
+  return detectedBrowserCdpUrl || DEFAULT_BROWSER_CDP_URL
+}
+
+async function probeBrowserCdpUrl(candidate) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), CDP_DISCOVERY_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${candidate}/json/version`, { signal: controller.signal })
+    if (!response.ok) return false
+    const payload = await response.json()
+    const browser = String(payload?.Browser || payload?.browser || '')
+    return Boolean(payload?.webSocketDebuggerUrl) && /(?:Chrome|Chromium|HeadlessChrome)\//i.test(browser)
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function resolveBrowserCdpUrl() {
+  const configuredUrl = String(process.env.HERMES_BROWSER_CDP_URL || '').trim()
+  if (configuredUrl) return normalizeBrowserCdpUrl(configuredUrl)
+  if (detectedBrowserCdpUrl) return detectedBrowserCdpUrl
+  const candidates = await browserCdpCandidates()
+  for (const candidate of candidates) {
+    if (await probeBrowserCdpUrl(candidate)) {
+      detectedBrowserCdpUrl = candidate
+      return candidate
+    }
+  }
+  throw new Error(`Chrome CDP is unavailable. Probed: ${candidates.join(', ')}`)
+}
+
+async function cdpHttpRequest(pathname, options = {}) {
+  const timeoutMs = options.timeoutMs || CDP_COMMAND_TIMEOUT_MS
+  let timer
+  try {
+    const baseUrl = await resolveBrowserCdpUrl()
+    const controller = new AbortController()
+    timer = setTimeout(() => controller.abort(), timeoutMs)
+    const response = await fetch(new URL(pathname, `${baseUrl}/`), {
+      method: options.method || 'GET',
+      headers: options.body === undefined ? undefined : { 'content-type': 'application/json' },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
+    })
+    const text = await response.text()
+    let payload = text
+    try { payload = text ? JSON.parse(text) : null } catch { /* Chrome may return plain text for activate/close. */ }
+    if (!response.ok) {
+      const detail = typeof payload === 'string' ? payload : JSON.stringify(payload)
+      throw new Error(`Chrome CDP HTTP ${response.status}: ${detail || response.statusText}`)
+    }
+    return payload
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`Chrome CDP request timed out after ${timeoutMs}ms`)
+    if (error instanceof TypeError) throw new Error(`Chrome CDP is unavailable at ${browserCdpUrl()}: ${error.message}`)
+    throw error
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function cdpPageTargets(payload) {
+  if (!Array.isArray(payload)) throw new Error('Chrome CDP returned an invalid target list')
+  return payload.filter(target => target?.type === 'page' && target?.id && target?.webSocketDebuggerUrl)
+}
+
+async function listCdpTargets() {
+  return cdpPageTargets(await cdpHttpRequest('/json'))
+}
+
+async function resolveCdpTarget(tabId) {
+  const value = String(tabId || '').trim()
+  const targets = await listCdpTargets()
+  if (!targets.length) throw new Error(`No Chrome page tabs are available at ${browserCdpUrl()}`)
+  if (!value || ['fnos-browser', 'latest', 'active'].includes(value)) return targets[0]
+  const exact = targets.find(target => target.id === value)
+  if (exact) return exact
+  const legacyMatch = /^t(\d+)$/.exec(value)
+  if (legacyMatch) {
+    const target = targets[Number(legacyMatch[1]) - 1]
+    if (target) return target
+  }
+  throw new Error(`Unknown Chrome page tab '${value}'. Call tabs.list first.`)
+}
+
+function targetSummary(target, index) {
+  return {
+    tab_id: target.id,
+    legacy_tab_id: `t${index + 1}`,
+    title: target.title || '',
+    url: target.url || '',
+    type: target.type || 'page',
+  }
+}
+
+async function createCdpTarget(url) {
+  const validated = url ? validateLocalBrowserUrl(url) : 'about:blank'
+  const encodedUrl = encodeURI(validated).replace(/#/g, '%23')
+  try {
+    return await cdpHttpRequest(`/json/new?${encodedUrl}`, { method: 'PUT' })
+  } catch (firstError) {
+    // A few Chromium builds expect the URL to be percent-encoded as one query value.
+    try {
+      return await cdpHttpRequest(`/json/new?${encodeURIComponent(validated)}`, { method: 'PUT' })
+    } catch {
+      throw firstError
+    }
+  }
+}
+
+async function cdpCommand(target, method, params = {}, timeoutMs = CDP_COMMAND_TIMEOUT_MS) {
+  const wsUrl = String(target?.webSocketDebuggerUrl || '').trim()
+  if (!wsUrl) throw new Error(`Chrome tab '${target?.id || ''}' has no WebSocket debugger URL`)
+  const ws = new WebSocket(wsUrl, { handshakeTimeout: timeoutMs })
+  const requestId = 1
+  return await new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try { ws.close() } catch { /* Ignore close races. */ }
+      callback(value)
+    }
+    const timer = setTimeout(() => finish(reject, new Error(`Chrome CDP command '${method}' timed out after ${timeoutMs}ms`)), timeoutMs)
+    ws.once('error', error => finish(reject, new Error(`Chrome CDP WebSocket failed: ${error.message}`)))
+    ws.on('message', data => {
+      let message
+      try { message = JSON.parse(data.toString()) } catch { return }
+      if (message.id !== requestId) return
+      if (message.error) {
+        finish(reject, new Error(`Chrome CDP ${method} failed: ${message.error.message || JSON.stringify(message.error)}`))
+        return
+      }
+      finish(resolve, message.result || {})
+    })
+    ws.once('open', () => {
+      try {
+        ws.send(JSON.stringify({ id: requestId, method, params }))
+      } catch (error) {
+        finish(reject, error)
+      }
+    })
+  })
+}
+
+async function evaluateCdp(target, expression) {
+  const payload = await cdpCommand(target, 'Runtime.evaluate', {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+    userGesture: true,
+  })
+  if (payload.exceptionDetails) {
+    const description = payload.exceptionDetails.exception?.description || payload.exceptionDetails.text || 'JavaScript evaluation failed'
+    throw new Error(description)
+  }
+  return payload.result?.value
+}
+
+function validateLocalBrowserUrl(value) {
+  const url = String(value || '').trim()
+  if (!/^https?:\/\//i.test(url)) throw new Error('Only HTTP and HTTPS URLs are allowed')
+  const parsed = new URL(url)
+  if (parsed.username || parsed.password) throw new Error('Browser URLs cannot contain credentials')
+  return parsed.toString()
+}
+
+function rememberSnapshot(targetId, payload) {
+  const snapshotId = randomUUID()
+  snapshotCache.set(snapshotId, { targetId, refs: payload.refs || {} })
+  while (snapshotCache.size > MAX_SNAPSHOT_CACHE) snapshotCache.delete(snapshotCache.keys().next().value)
+  return snapshotId
+}
+
+function requireSnapshot(snapshotId, targetId, ref) {
+  const snapshot = snapshotCache.get(String(snapshotId || ''))
+  if (!snapshot || snapshot.targetId !== targetId) throw new Error('snapshot_id is missing, expired, or belongs to another tab. Take a new snapshot first.')
+  if (ref && !snapshot.refs[ref]) throw new Error(`Unknown snapshot ref '${ref}'. Take a new snapshot first.`)
+  return snapshot
+}
+
+function pageRefExpression(ref) {
+  const encodedRef = JSON.stringify(String(ref))
+  return `(() => { const ref = ${encodedRef}; const node = Array.from(document.querySelectorAll('[data-hermes-mcp-ref]')).find(item => item.getAttribute('data-hermes-mcp-ref') === ref); if (!node) throw new Error('Element ref ' + ref + ' is no longer available'); return node; })()`
+}
+
+function snapshotExpression() {
+  return `(() => {
+    const visible = node => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const roleFor = node => node.getAttribute('role') || ({a:'link',button:'button',input:'textbox',textarea:'textbox',select:'combobox',option:'option',img:'img',h1:'heading',h2:'heading',h3:'heading',h4:'heading',h5:'heading',h6:'heading',li:'listitem'}[node.tagName.toLowerCase()] || node.tagName.toLowerCase());
+    const nameFor = node => (node.getAttribute('aria-label') || node.getAttribute('alt') || node.getAttribute('placeholder') || (node.tagName.toLowerCase() === 'input' ? node.value : '') || node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 500);
+    document.querySelectorAll('[data-hermes-mcp-ref]').forEach(node => node.removeAttribute('data-hermes-mcp-ref'));
+    const nodes = Array.from(document.querySelectorAll('a,button,input,textarea,select,option,[role],h1,h2,h3,h4,h5,h6,summary,[contenteditable="true"],[tabindex]:not([tabindex="-1"]),p,li')).filter(visible);
+    const refs = {};
+    const lines = [];
+    let index = 0;
+    for (const node of nodes) {
+      const name = nameFor(node);
+      if (!name) continue;
+      const ref = 'e' + (++index);
+      node.setAttribute('data-hermes-mcp-ref', ref);
+      const role = roleFor(node);
+      refs[ref] = { role, name, tag: node.tagName.toLowerCase() };
+      lines.push('[' + ref + '] ' + role + (name ? ': ' + name : ''));
+      if (lines.length >= 500) break;
+    }
+    return { snapshot: lines.join('\\n').slice(0, 30000), refs, url: location.href, title: document.title };
+  })()`
+}
+
+function consoleHookExpression(clear) {
+  return `(() => {
+    const key = '__hermesStudioMcpConsole';
+    const serialize = value => { try { if (value instanceof Error) return value.stack || value.message; const json = JSON.stringify(value); return json === undefined ? String(value) : JSON.parse(json); } catch { return String(value); } };
+    if (!window[key]) {
+      const entries = [];
+      const original = {};
+      for (const method of ['log','info','debug','warn','error','dir','table']) {
+        original[method] = console[method];
+        console[method] = (...args) => { entries.push({ type: method, args: args.map(serialize), timestamp: new Date().toISOString() }); if (entries.length > 200) entries.shift(); return original[method].apply(console, args); };
+      }
+      window.addEventListener('error', event => entries.push({ type: 'error', args: [event.message], timestamp: new Date().toISOString() }));
+      window.addEventListener('unhandledrejection', event => entries.push({ type: 'error', args: [serialize(event.reason)], timestamp: new Date().toISOString() }));
+      window[key] = { entries };
+    }
+    if (${clear ? 'true' : 'false'}) window[key].entries.length = 0;
+    return { success: true, entries: window[key].entries.slice(-100) };
+  })()`
+}
+
+function cdpKeyDescriptor(rawKey) {
+  const parts = String(rawKey || '').split('+').filter(Boolean)
+  const base = parts.pop() || ''
+  const upper = base.toUpperCase()
+  const modifiers = (parts.includes('Alt') ? 1 : 0) | (parts.includes('Control') || parts.includes('Ctrl') ? 2 : 0) | (parts.includes('Meta') || parts.includes('Command') ? 4 : 0) | (parts.includes('Shift') ? 8 : 0)
+  const special = {
+    ENTER: ['Enter', 'Enter'],
+    TAB: ['Tab', 'Tab'],
+    ESC: ['Escape', 'Escape'],
+    ESCAPE: ['Escape', 'Escape'],
+    BACKSPACE: ['Backspace', 'Backspace'],
+    DELETE: ['Delete', 'Delete'],
+    ARROWUP: ['ArrowUp', 'ArrowUp'],
+    ARROWDOWN: ['ArrowDown', 'ArrowDown'],
+    ARROWLEFT: ['ArrowLeft', 'ArrowLeft'],
+    ARROWRIGHT: ['ArrowRight', 'ArrowRight'],
+    HOME: ['Home', 'Home'],
+    END: ['End', 'End'],
+    PAGEUP: ['PageUp', 'PageUp'],
+    PAGEDOWN: ['PageDown', 'PageDown'],
+    SPACE: [' ', 'Space'],
+  }
+  const [key, code] = special[upper] || (base.length === 1 && /[a-z]/i.test(base) ? [base, `Key${base.toUpperCase()}`] : [base, base])
+  return { key, code, modifiers, text: modifiers === 0 && key.length === 1 ? key : undefined, windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined, nativeVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined }
+}
+
+async function localBrowserRequest(method, params = {}) {
+  const operationId = randomUUID()
+  if (method === 'tabs.list') {
+    const targets = await listCdpTargets()
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', cdp_url: browserCdpUrl(), tabs: targets.map(targetSummary) } }
+  }
+  if (method === 'tabs.create') {
+    const target = await createCdpTarget(params.url)
+    const targets = await listCdpTargets()
+    const created = targets.find(item => item.id === target?.id) || target
+    if (params.activate !== false && created?.id) await cdpHttpRequest(`/json/activate/${encodeURIComponent(created.id)}`).catch(() => {})
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', tab: created?.id ? targetSummary(created, Math.max(0, targets.findIndex(item => item.id === created.id))) : created } }
+  }
+  if (method === 'tabs.activate') {
+    const target = await resolveCdpTarget(params.tab_id)
+    await cdpHttpRequest(`/json/activate/${encodeURIComponent(target.id)}`)
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', tab: targetSummary(target, (await listCdpTargets()).findIndex(item => item.id === target.id)) } }
+  }
+  if (method === 'tabs.close') {
+    const target = await resolveCdpTarget(params.tab_id)
+    await cdpHttpRequest(`/json/close/${encodeURIComponent(target.id)}`)
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', closed: target.id } }
+  }
+  if (method === 'lease.release') {
+    await resolveCdpTarget(params.tab_id)
+    return { operation_id: operationId, result: { success: true, released: true, backend: 'fnos-cdp', note: 'CDP uses per-command connections; no persistent lease is held.' } }
+  }
+  if (method === 'navigate') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const url = validateLocalBrowserUrl(params.url)
+    const result = await cdpCommand(target, 'Page.navigate', { url })
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', tab_id: target.id, url, frame_id: result.frameId } }
+  }
+  if (method === 'navigation.action') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const action = String(params.action || '')
+    if (action === 'reload') await cdpCommand(target, 'Page.reload', { ignoreCache: false })
+    else if (action === 'stop') await cdpCommand(target, 'Page.stopLoading')
+    else if (action === 'back') await evaluateCdp(target, 'history.back(); true')
+    else if (action === 'forward') await evaluateCdp(target, 'history.forward(); true')
+    else throw new Error(`Unsupported navigation action '${action}'`)
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', action, tab_id: target.id } }
+  }
+  if (method === 'snapshot') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const payload = await evaluateCdp(target, snapshotExpression())
+    const snapshotId = rememberSnapshot(target.id, payload || {})
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', snapshot_id: snapshotId, ...(payload || {}) } }
+  }
+  if (method === 'text.read') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const ref = String(params.ref || '').trim() || 'body'
+    if (ref !== 'body') requireSnapshot(params.snapshot_id, target.id, ref)
+    const mode = params.mode === 'textContent' ? 'textContent' : 'innerText'
+    const expression = ref === 'body'
+      ? `String(document.body?.[${JSON.stringify(mode)}] || '')`
+      : `String((${pageRefExpression(ref)})[${JSON.stringify(mode)}] || '')`
+    const text = String(await evaluateCdp(target, expression) || '')
+    const offset = Math.max(0, Number(params.offset) || 0)
+    const limit = Math.max(1, Math.min(20_000, Number(params.limit) || 4_000))
+    const value = text.slice(offset, offset + limit)
+    return { operation_id: operationId, result: { success: true, text: value, offset, limit, hasMore: offset + value.length < text.length, nextOffset: offset + value.length } }
+  }
+  if (method === 'interact') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const action = params.action || {}
+    const ref = String(action.ref || '').trim()
+    if (['click', 'type'].includes(action.action)) requireSnapshot(action.snapshot_id, target.id, ref)
+    if (action.action === 'click') {
+      await evaluateCdp(target, `(() => { const node = ${pageRefExpression(ref)}; node.scrollIntoView({block:'center', inline:'center'}); node.click(); return true; })()`)
+    } else if (action.action === 'type') {
+      const text = JSON.stringify(String(action.text || ''))
+      await evaluateCdp(target, `(() => { const node = ${pageRefExpression(ref)}; node.scrollIntoView({block:'center', inline:'center'}); node.focus(); const value = ${text}; if (node.isContentEditable) node.textContent = value; else { const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(node), 'value')?.set; if (setter) setter.call(node, value); else node.value = value; } node.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:value})); node.dispatchEvent(new Event('change', {bubbles:true})); return true; })()`)
+    } else if (action.action === 'press') {
+      const descriptor = cdpKeyDescriptor(action.key)
+      if (ref) {
+        requireSnapshot(action.snapshot_id, target.id, ref)
+        await evaluateCdp(target, `(() => { const node = ${pageRefExpression(ref)}; node.focus(); return true; })()`)
+      }
+      await cdpCommand(target, 'Input.dispatchKeyEvent', { type: 'keyDown', ...descriptor })
+      await cdpCommand(target, 'Input.dispatchKeyEvent', { type: 'keyUp', ...descriptor, text: undefined })
+    } else if (action.action === 'scroll') {
+      const pixels = Math.max(1, Math.min(10_000, Number(action.pixels) || 600))
+      const direction = String(action.direction || 'down')
+      const horizontal = direction === 'left' ? -pixels : direction === 'right' ? pixels : 0
+      const vertical = direction === 'up' ? -pixels : direction === 'down' ? pixels : 0
+      await evaluateCdp(target, `window.scrollBy({left:${horizontal}, top:${vertical}, behavior:'instant'}); true`)
+    } else {
+      throw new Error(`Unsupported browser interaction '${String(action.action || '')}'`)
+    }
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', action: action.action, tab_id: target.id } }
+  }
+  if (method === 'screenshot') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const capture = { format: 'png', fromSurface: true }
+    if (params.full_page === true) {
+      const metrics = await cdpCommand(target, 'Page.getLayoutMetrics')
+      const contentSize = metrics.cssContentSize || metrics.contentSize
+      if (contentSize?.width && contentSize?.height) {
+        capture.captureBeyondViewport = true
+        capture.clip = { x: 0, y: 0, width: contentSize.width, height: contentSize.height, scale: 1 }
+      }
+    }
+    const payload = await cdpCommand(target, 'Page.captureScreenshot', capture)
+    if (!payload.data) throw new Error('Chrome CDP returned an empty screenshot')
+    return { operation_id: operationId, result: { mediaType: 'image/png', data: payload.data } }
+  }
+  if (method === 'console.read' || method === 'console.clear') {
+    const target = await resolveCdpTarget(params.tab_id)
+    const payload = await evaluateCdp(target, consoleHookExpression(method === 'console.clear'))
+    return { operation_id: operationId, result: { success: true, backend: 'fnos-cdp', console: payload?.entries || [], errors: (payload?.entries || []).filter(entry => entry.type === 'error') } }
+  }
+  throw new Error(`Unsupported fnOS browser operation '${method}'`)
+}
 
 function browserInputSchema(properties = {}, required = []) {
   return {
@@ -581,67 +1028,13 @@ function browserInputSchema(properties = {}, required = []) {
   }
 }
 
-function browserDescriptor() {
-  let descriptor
-  const descriptorPath = join(appHome(), 'desktop-browser', 'broker.json')
-  try {
-    const info = statSync(descriptorPath)
-    if (process.platform !== 'win32' && (info.mode & 0o077) !== 0) throw new Error('unsafe descriptor permissions')
-    const directoryInfo = statSync(join(appHome(), 'desktop-browser'))
-    if (process.platform !== 'win32' && (directoryInfo.mode & 0o077) !== 0) throw new Error('unsafe descriptor directory permissions')
-    descriptor = JSON.parse(readFileSync(descriptorPath, 'utf8'))
-  } catch {
-    throw new Error('Hermes Studio Desktop Browser is not running. Open the Desktop app and try again.')
-  }
-  const endpoint = String(descriptor?.endpoint || '')
-  const token = String(descriptor?.token || '')
-  const parsed = new URL(endpoint)
-  if (descriptor?.schema !== 1 || parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' || parsed.pathname !== '/v1' || !token) {
-    throw new Error('Desktop Browser Broker descriptor is invalid')
-  }
-  if (!Number.isInteger(descriptor.desktopPid) || descriptor.desktopPid <= 0) throw new Error('Desktop Browser Broker PID is invalid')
-  try { process.kill(descriptor.desktopPid, 0) } catch { throw new Error('Hermes Studio Desktop Browser is no longer running') }
-  return { endpoint, token, instanceId: String(descriptor.instanceId || '') }
-}
-
-async function browserSession(descriptor) {
-  if (cachedBrowserSession?.instanceId === descriptor.instanceId) return cachedBrowserSession
-  const sessionUrl = new URL(descriptor.endpoint)
-  sessionUrl.pathname = '/v1/session'
-  const response = await fetch(sessionUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${descriptor.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client: BROWSER_CLIENT_ID, client_pid: process.pid }),
-    signal: AbortSignal.timeout(10_000),
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok || !payload?.client_id || !payload?.session_token) throw new Error(payload?.error || 'Desktop Browser Broker session failed')
-  cachedBrowserSession = { instanceId: descriptor.instanceId, clientId: payload.client_id, token: payload.session_token }
-  return cachedBrowserSession
-}
-
 async function browserRequest(method, params = {}) {
-  const descriptor = browserDescriptor()
-  const session = await browserSession(descriptor)
-  const operationId = randomUUID()
-  const response = await fetch(descriptor.endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'Content-Type': 'application/json',
-      'X-Hermes-Browser-Client': session.clientId,
-    },
-    body: JSON.stringify({ method, params, operation_id: operationId }),
-    signal: AbortSignal.timeout(45_000),
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(payload?.error || `Browser Broker HTTP ${response.status}`)
-  return payload
+  return await localBrowserRequest(method, params)
 }
 
 function browserScreenshotContent(envelope) {
   const screenshot = envelope?.result
-  if (!screenshot?.data || !screenshot?.mediaType) throw new Error('Browser Broker returned an invalid screenshot')
+  if (!screenshot?.data || !screenshot?.mediaType) throw new Error('fnOS browser returned an invalid screenshot')
   const metadata = { ...screenshot }
   delete metadata.data
   return {
@@ -856,7 +1249,7 @@ const tools = [
   {
     name: 'hermes_studio_browser_tabs',
     toolset: 'browser',
-    description: 'List, create, activate, close, or release control of Hermes Studio Desktop browser tabs. Reuse explicit tab_id values across calls.',
+    description: 'List, create, activate, close, or release control of tabs in the fnOS Chrome browser exposed through local CDP. Reuse tab_id values returned by list.',
     inputSchema: browserInputSchema({
       action: { type: 'string', enum: ['list', 'create', 'activate', 'close', 'release'] },
       tab_id: { type: 'string', description: 'Required for activate, close, and release.' },
@@ -867,7 +1260,7 @@ const tools = [
   {
     name: 'hermes_studio_browser_navigate',
     toolset: 'browser',
-    description: 'Open an HTTP/HTTPS URL or move back, forward, reload, or stop one Hermes Studio Desktop browser tab.',
+    description: 'Open an HTTP/HTTPS URL or move back, forward, reload, or stop one Hermes Studio browser tab.',
     inputSchema: browserInputSchema({
       tab_id: { type: 'string' },
       action: { type: 'string', enum: ['open', 'back', 'forward', 'reload', 'stop'], description: 'Defaults to open when url is provided.' },
@@ -877,7 +1270,7 @@ const tools = [
   {
     name: 'hermes_studio_browser_snapshot',
     toolset: 'browser',
-    description: 'Return a bounded accessibility snapshot with stable element refs. Pass its snapshot_id to read text, click, or type; stale snapshots are rejected.',
+    description: 'Return a bounded accessibility snapshot with stable element refs and a snapshot_id. Pass both snapshot_id and ref to read text, click, or type.',
     inputSchema: browserInputSchema({ tab_id: { type: 'string' } }, ['tab_id']),
   },
   {
@@ -896,7 +1289,7 @@ const tools = [
   {
     name: 'hermes_studio_browser_interact',
     toolset: 'browser',
-    description: 'Click, type, press a key, or scroll in one Desktop browser tab. Click/type require a ref and snapshot_id from the latest snapshot.',
+    description: 'Click, type, press a key, or scroll in one fnOS Chrome tab. Click/type use a ref from the latest snapshot; press can optionally focus a snapshot ref first.',
     inputSchema: browserInputSchema({
       tab_id: { type: 'string' },
       action: { type: 'string', enum: ['click', 'type', 'press', 'scroll'] },
@@ -913,7 +1306,7 @@ const tools = [
   {
     name: 'hermes_studio_browser_console',
     toolset: 'browser',
-    description: 'Read or clear the bounded console log for one Desktop browser tab.',
+    description: 'Read or clear the bounded console log for one browser tab.',
     inputSchema: browserInputSchema({ tab_id: { type: 'string' }, action: { type: 'string', enum: ['read', 'clear'] } }, ['tab_id', 'action']),
   },
   {
@@ -1611,8 +2004,8 @@ const TOOL_ALIASES = new Map([
 const CATEGORY_TOOLSETS = {
   browser: {
     name: 'hermes_studio_browser_toolset',
-    coverage: 'Hermes Studio Desktop browser tabs and leases; HTTP/HTTPS navigation; accessibility snapshots with stable refs; click, type, key press, and scroll interaction; viewport or full-page screenshots; bounded console log read and clear.',
-    description: 'Discover and invoke Hermes Studio Desktop browser operations without loading every browser tool schema into the model context. Covers tab list/create/activate/close/release, navigation back/forward/reload/stop/open, accessibility snapshots, click/type/key/scroll interaction, screenshots, and console logs. Use action=list for the compact operation catalog, action=describe for one full input schema, then action=call with that exact tool name and arguments.',
+    coverage: 'fnOS local browser tabs and leases; HTTP/HTTPS navigation; accessibility snapshots with stable refs; click, type, key press, and scroll interaction; viewport or full-page screenshots; bounded console log read and clear.',
+    description: 'Discover and invoke Hermes Studio browser operations without loading every browser tool schema into the model context. On fnOS these operations connect to the locally running Chrome through its CDP endpoint, defaulting to http://127.0.0.1:16002. Covers tab list/create/activate/close/release, navigation back/forward/reload/stop/open, accessibility snapshots, click/type/key/scroll interaction, screenshots, and console logs. Use action=list for the compact operation catalog, action=describe for one full input schema, then action=call with that exact tool name and arguments.',
   },
   devices: {
     name: 'hermes_studio_devices_toolset',
@@ -1689,13 +2082,6 @@ function serverInstructions() {
 }
 
 function visibleTools() {
-  if (ACTIVE_TOOLSET === 'browser') {
-    try {
-      browserDescriptor()
-    } catch {
-      return []
-    }
-  }
   const categoryToolset = categoryToolsetDefinition(ACTIVE_TOOLSET)
   if (categoryToolset) return [categoryToolset]
   const visible = activeToolsetTools()

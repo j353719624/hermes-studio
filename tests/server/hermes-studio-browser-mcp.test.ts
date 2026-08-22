@@ -1,21 +1,26 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { join } from 'node:path'
+import { WebSocketServer } from 'ws'
 import { afterEach, describe, expect, it } from 'vitest'
 
 let child: ChildProcessWithoutNullStreams | null = null
-let server: Server | null = null
-let root = ''
+let httpServer: Server | null = null
+let wsServer: WebSocketServer | null = null
 
 afterEach(async () => {
   child?.kill()
   child = null
-  await new Promise<void>(resolve => server ? server.close(() => resolve()) : resolve())
-  server = null
-  if (root) await rm(root, { recursive: true, force: true })
-  root = ''
+  await new Promise<void>(resolve => {
+    if (!httpServer) return resolve()
+    httpServer.close(() => resolve())
+    httpServer = null
+  })
+  await new Promise<void>(resolve => {
+    if (!wsServer) return resolve()
+    wsServer.close(() => resolve())
+    wsServer = null
+  })
 })
 
 function rpcClient(process: ChildProcessWithoutNullStreams) {
@@ -47,20 +52,100 @@ function rpcClient(process: ChildProcessWithoutNullStreams) {
   }
 }
 
-describe('hermes-studio browser MCP toolset', () => {
-  it('stays healthy and returns bounded unavailable results without a Desktop Browser Broker', async () => {
-    root = await mkdtemp(join(tmpdir(), 'hermes-browser-mcp-no-broker-'))
-    child = spawn(process.execPath, [join(process.cwd(), 'bin/hermes-studio-mcp.mjs'), 'browser'], {
-      env: { ...process.env, HERMES_WEB_UI_HOME: root },
-      stdio: ['pipe', 'pipe', 'pipe'],
+async function listen(server: Server | WebSocketServer): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.once('listening', () => resolve())
+    server.listen(0, '127.0.0.1')
+  })
+  return (server.address() as { port: number }).port
+}
+
+async function startFakeCdp() {
+  wsServer = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+  await new Promise<void>((resolve, reject) => {
+    wsServer?.once('error', reject)
+    wsServer?.once('listening', () => resolve())
+  })
+  const wsPort = (wsServer.address() as { port: number }).port
+  const target = {
+    id: 'page-1',
+    type: 'page',
+    title: 'fnOS Chrome',
+    url: 'https://example.test/',
+    webSocketDebuggerUrl: `ws://127.0.0.1:${wsPort}/devtools/page/page-1`,
+  }
+  wsServer.on('connection', socket => {
+    socket.on('message', raw => {
+      const request = JSON.parse(String(raw))
+      let result: Record<string, unknown> = {}
+      if (request.method === 'Page.navigate') result = { frameId: 'frame-1' }
+      if (request.method === 'Page.getLayoutMetrics') result = { cssContentSize: { width: 1024, height: 768 } }
+      if (request.method === 'Page.captureScreenshot') result = { data: Buffer.from('fake-png').toString('base64') }
+      if (request.method === 'Runtime.evaluate') {
+        const expression = String(request.params?.expression || '')
+        if (expression.includes('removeAttribute')) {
+          result = { result: { type: 'object', value: { snapshot: '[e1] button: OK', refs: { e1: { role: 'button', name: 'OK', tag: 'button' } }, url: target.url, title: target.title } } }
+        } else if (expression.includes('__hermesStudioMcpConsole')) {
+          result = { result: { type: 'object', value: { success: true, entries: [] } } }
+        } else {
+          result = { result: { type: 'boolean', value: true } }
+        }
+      }
+      socket.send(JSON.stringify({ id: request.id, result }))
     })
-    const rpc = rpcClient(child)
+  })
 
-    const initialized = await rpc(1, 'initialize', { protocolVersion: '2024-11-05' })
-    expect(initialized.result.serverInfo.toolset).toBe('browser')
-    expect((await rpc(2, 'tools/list')).result.tools).toEqual([])
+  httpServer = createServer((request, response) => {
+    const url = new URL(request.url || '/', 'http://127.0.0.1')
+    if (url.pathname === '/json/version' && request.method === 'GET') {
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ Browser: 'Chrome/140.0.0.0', 'Protocol-Version': '1.3', webSocketDebuggerUrl: target.webSocketDebuggerUrl }))
+      return
+    }
+    if (url.pathname === '/json' && request.method === 'GET') {
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify([target]))
+      return
+    }
+    if (url.pathname === '/json/new' && request.method === 'PUT') {
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify(target))
+      return
+    }
+    if (url.pathname.startsWith('/json/activate/') || url.pathname.startsWith('/json/close/')) {
+      response.statusCode = 200
+      response.end('OK')
+      return
+    }
+    response.statusCode = 404
+    response.end('Not found')
+  })
+  const httpPort = await listen(httpServer)
+  return `http://127.0.0.1:${httpPort}`
+}
 
-    const unavailable = await rpc(3, 'tools/call', {
+function startMcp(cdpUrl?: string, cdpPorts?: string) {
+  const env = { ...process.env }
+  delete env.HERMES_BROWSER_CDP_URL
+  delete env.HERMES_BROWSER_CDP_PORTS
+  if (cdpUrl) env.HERMES_BROWSER_CDP_URL = cdpUrl
+  if (cdpPorts) env.HERMES_BROWSER_CDP_PORTS = cdpPorts
+  child = spawn(process.execPath, [join(process.cwd(), 'bin/hermes-studio-mcp.mjs'), 'browser'], {
+    env: { ...env, HERMES_WEB_UI_HOME: process.cwd(), HERMES_WEB_UI_PROFILE: 'default' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  return rpcClient(child)
+}
+
+describe('hermes-studio fnOS Chrome CDP browser MCP toolset', () => {
+  it('always exposes the fnOS browser tool and reports a clear CDP error', async () => {
+    const rpc = startMcp('http://127.0.0.1:1')
+    const listed = await rpc(1, 'tools/list')
+    expect(listed.result.tools).toHaveLength(1)
+    expect(listed.result.tools[0].name).toBe('hermes_studio_browser_toolset')
+
+    const unavailable = await rpc(2, 'tools/call', {
       name: 'hermes_studio_browser_toolset',
       arguments: {
         action: 'call',
@@ -69,119 +154,67 @@ describe('hermes-studio browser MCP toolset', () => {
       },
     })
     expect(unavailable.result.isError).toBe(true)
-    expect(unavailable.result.content[0].text).toContain('Desktop Browser is not running')
-    expect(child.exitCode).toBeNull()
+    expect(unavailable.result.content[0].text).toContain('Chrome CDP')
+    expect(unavailable.result.content[0].text).not.toContain('Broker')
+    expect(child?.exitCode).toBeNull()
   })
 
-  it('exposes one compact category tool and preserves browser MCP image results', async () => {
-    root = await mkdtemp(join(tmpdir(), 'hermes-browser-mcp-'))
-    const clients: string[] = []
-    const registeredPids: number[] = []
-    let failScreenshot = false
-    server = createServer(async (request, response) => {
-      const chunks: Buffer[] = []
-      for await (const chunk of request) chunks.push(Buffer.from(chunk))
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-      response.setHeader('Content-Type', 'application/json')
-      if (request.url === '/v1/session') {
-        registeredPids.push(body.client_pid)
-        response.end(JSON.stringify({ client_id: 'broker-client-1', session_token: 'session-token' }))
-        return
-      }
-      clients.push(String(request.headers['x-hermes-browser-client'] || ''))
-      if (body.method === 'screenshot' && failScreenshot) {
-        response.statusCode = 400
-        response.end(JSON.stringify({ error: 'capture failed' }))
-        return
-      }
-      const result = body.method === 'screenshot'
-        ? { tabId: 'tab-1', url: 'https://example.com/', title: 'Example', mediaType: 'image/png', data: 'AA==', width: 1, height: 1 }
-        : body.method === 'snapshot'
-          ? { tabId: 'tab-1', snapshotId: 'snapshot-1', text: '@e1 button name="Example"' }
-          : body.method === 'text.read'
-            ? { tabId: 'tab-1', snapshotId: 'snapshot-1', ref: '@e1', text: 'Complete text', totalLength: 13, returnedLength: 13, hasMore: false }
-        : { tabs: [{ id: 'tab-1' }] }
-      response.end(JSON.stringify({ operation_id: body.operation_id, result }))
-    })
-    await new Promise<void>((resolve, reject) => {
-      server!.once('error', reject)
-      server!.listen(0, '127.0.0.1', () => resolve())
-    })
-    const address = server.address()
-    if (!address || typeof address === 'string') throw new Error('test broker did not bind')
-    const brokerRoot = join(root, 'desktop-browser')
-    await mkdir(brokerRoot, { recursive: true, mode: 0o700 })
-    await writeFile(join(brokerRoot, 'broker.json'), JSON.stringify({
-      schema: 1, desktopPid: process.pid, endpoint: `http://127.0.0.1:${address.port}/v1`, token: 'test-token', instanceId: 'test', createdAt: new Date().toISOString(),
-    }), { mode: 0o600 })
+  it('lists existing Chrome tabs and dispatches CDP navigation, snapshot, interaction, and screenshot', async () => {
+    const cdpUrl = await startFakeCdp()
+    const rpc = startMcp(undefined, String(new URL(cdpUrl).port))
 
-    child = spawn(process.execPath, [join(process.cwd(), 'bin/hermes-studio-mcp.mjs'), 'browser'], {
-      env: { ...process.env, HERMES_WEB_UI_HOME: root },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const rpc = rpcClient(child)
-    const initialized = await rpc(1, 'initialize', { protocolVersion: '2024-11-05' })
-    const listed = await rpc(2, 'tools/list')
-    expect(initialized.result.instructions).toContain('tab list/create/activate/close/release')
-    expect(listed.result.tools).toHaveLength(1)
-    expect(listed.result.tools[0].name).toBe('hermes_studio_browser_toolset')
-    expect(listed.result.tools[0].description).toContain('screenshots')
-
-    const catalog = await rpc(3, 'tools/call', {
-      name: 'hermes_studio_browser_toolset',
-      arguments: { action: 'list' },
-    })
-    expect(JSON.parse(catalog.result.content[0].text)).toMatchObject({
-      toolset: 'browser',
-      operation_count: 7,
-    })
-    const described = await rpc(4, 'tools/call', {
-      name: 'hermes_studio_browser_toolset',
-      arguments: { action: 'describe', tool: 'hermes_studio_browser_screenshot' },
-    })
-    expect(JSON.parse(described.result.content[0].text).inputSchema.required).toContain('tab_id')
-
-    await rpc(5, 'tools/call', {
-      name: 'hermes_studio_browser_toolset',
-      arguments: { action: 'call', tool: 'hermes_studio_browser_tabs', arguments: { action: 'list' } },
-    })
-    const screenshot = await rpc(6, 'tools/call', {
-      name: 'hermes_studio_browser_toolset',
-      arguments: { action: 'call', tool: 'hermes_studio_browser_screenshot', arguments: { tab_id: 'tab-1' } },
-    })
-    expect(screenshot.result.content[1]).toEqual({ type: 'image', data: 'AA==', mimeType: 'image/png' })
-    const readText = await rpc(7, 'tools/call', {
+    const listed = await rpc(1, 'tools/call', {
       name: 'hermes_studio_browser_toolset',
       arguments: {
         action: 'call',
-        tool: 'hermes_studio_browser_read_text',
-        arguments: { tab_id: 'tab-1', snapshot_id: 'snapshot-1', ref: '@e1', offset: 0, limit: 4000 },
+        tool: 'hermes_studio_browser_tabs',
+        arguments: { action: 'list' },
       },
     })
-    expect(JSON.parse(readText.result.content[0].text)).toMatchObject({
-      result: {
-        snapshotId: 'snapshot-1',
-        ref: '@e1',
-        text: 'Complete text',
-        hasMore: false,
-      },
-    })
-    expect(clients).toHaveLength(3)
-    expect(clients[0]).toBeTruthy()
-    expect(clients[0]).toBe(clients[1])
-    expect(clients[1]).toBe(clients[2])
-    expect(registeredPids).toEqual([child.pid])
+    expect(listed.result.isError).not.toBe(true)
+    const tabs = JSON.parse(listed.result.content[0].text)
+    expect(tabs.result.tabs[0]).toMatchObject({ tab_id: 'page-1', legacy_tab_id: 't1', title: 'fnOS Chrome' })
 
-    failScreenshot = true
-    const fallback = await rpc(8, 'tools/call', {
+    const navigated = await rpc(2, 'tools/call', {
       name: 'hermes_studio_browser_toolset',
-      arguments: { action: 'call', tool: 'hermes_studio_browser_screenshot', arguments: { tab_id: 'tab-1' } },
+      arguments: {
+        action: 'call',
+        tool: 'hermes_studio_browser_navigate',
+        arguments: { tab_id: 'page-1', action: 'open', url: 'https://example.test/next' },
+      },
     })
-    expect(fallback.result.content[0].text).toContain('Accessibility snapshot')
-    expect(fallback.result.content[0].text).toContain('snapshot-1')
+    expect(navigated.result.isError).not.toBe(true)
 
-    await rm(join(brokerRoot, 'broker.json'))
-    const unavailable = await rpc(9, 'tools/list')
-    expect(unavailable.result.tools).toEqual([])
+    const snapshotResponse = await rpc(3, 'tools/call', {
+      name: 'hermes_studio_browser_toolset',
+      arguments: {
+        action: 'call',
+        tool: 'hermes_studio_browser_snapshot',
+        arguments: { tab_id: 'page-1' },
+      },
+    })
+    const snapshot = JSON.parse(snapshotResponse.result.content[0].text)
+    expect(snapshot.result.snapshot_id).toBeTruthy()
+
+    const clicked = await rpc(4, 'tools/call', {
+      name: 'hermes_studio_browser_toolset',
+      arguments: {
+        action: 'call',
+        tool: 'hermes_studio_browser_interact',
+        arguments: { tab_id: 'page-1', action: 'click', snapshot_id: snapshot.result.snapshot_id, ref: 'e1' },
+      },
+    })
+    expect(clicked.result.isError).not.toBe(true)
+
+    const screenshot = await rpc(5, 'tools/call', {
+      name: 'hermes_studio_browser_toolset',
+      arguments: {
+        action: 'call',
+        tool: 'hermes_studio_browser_screenshot',
+        arguments: { tab_id: 'page-1' },
+      },
+    })
+    expect(screenshot.result.isError).not.toBe(true)
+    expect(screenshot.result.content.some((item: any) => item.type === 'image' && item.mimeType === 'image/png')).toBe(true)
   })
 })

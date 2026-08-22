@@ -17,10 +17,6 @@ function isEnabledEnv(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
 }
 
-function isDesktopRuntime(): boolean {
-  return String(process.env.HERMES_DESKTOP || '').trim().toLowerCase() === 'true'
-}
-
 function allowTransientAutoinject(): boolean {
   return isEnabledEnv(process.env.HERMES_WEB_UI_ALLOW_TRANSIENT_MCP_AUTOINJECT)
 }
@@ -69,14 +65,26 @@ function managedCommandConfig(toolset: string): Record<string, unknown> {
     return { command: runtimeNodePath() || process.execPath, args: [bundledScript, toolset] }
   }
 
-  if (isDesktopRuntime()) {
-    return { command: 'hermes-studio-mcp', args: [toolset] }
-  }
-
   return { command: 'hermes-studio-mcp', args: [toolset] }
 }
 
 function managedMcpServerConfig(profile: string, serverName: string, toolset: string): Record<string, unknown> {
+  const browserRuntimeEnv: Record<string, string> = config.fnos
+    ? {
+        ...(process.env.HERMES_AGENT_BROWSER_BIN?.trim()
+          ? { HERMES_AGENT_BROWSER_BIN: process.env.HERMES_AGENT_BROWSER_BIN.trim() }
+          : {}),
+        ...(process.env.AGENT_BROWSER_EXECUTABLE_PATH?.trim()
+          ? { AGENT_BROWSER_EXECUTABLE_PATH: process.env.AGENT_BROWSER_EXECUTABLE_PATH.trim() }
+          : {}),
+        ...(process.env.HERMES_BROWSER_CDP_URL?.trim()
+          ? { HERMES_BROWSER_CDP_URL: process.env.HERMES_BROWSER_CDP_URL.trim() }
+          : {}),
+        ...(process.env.HERMES_BROWSER_CDP_PORTS?.trim()
+          ? { HERMES_BROWSER_CDP_PORTS: process.env.HERMES_BROWSER_CDP_PORTS.trim() }
+          : {}),
+      }
+    : {}
   return {
     ...managedCommandConfig(toolset),
     env: {
@@ -87,6 +95,7 @@ function managedMcpServerConfig(profile: string, serverName: string, toolset: st
       HERMES_MCP_SERVER_NAME: serverName,
       HERMES_MCP_TOOLSET: toolset,
       [MANAGED_ENV_KEY]: '1',
+      ...browserRuntimeEnv,
     },
     enabled: true,
   }

@@ -31,6 +31,7 @@ mkdir -p "${STAGE}" || fail "Cannot create the runtime staging directory."
 tar -xzf "${ARCHIVE}" -C "${STAGE}" || fail "Cannot extract the bundled Hermes runtime."
 [ -x "${STAGE}/python/venv/bin/hermes" ] || fail "Extracted runtime does not contain Hermes CLI."
 [ -x "${STAGE}/python/venv/bin/python3" ] || fail "Extracted runtime does not contain Python."
+[ -x "${STAGE}/python/node/bin/agent-browser" ] || fail "Extracted runtime does not contain agent-browser."
 [ -x "${STAGE}/node/bin/node" ] || fail "Extracted runtime does not contain Node.js."
 [ -f "${STAGE}/runtime-manifest.json" ] || fail "Extracted runtime manifest is missing."
 

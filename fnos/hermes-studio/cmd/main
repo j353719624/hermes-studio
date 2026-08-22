@@ -38,6 +38,7 @@ validate_runtime() {
   [ -x "${PROGRAM}" ] || { write_failure "Hermes Studio binary is missing."; return 1; }
   [ -x "${HERMES_BIN}" ] || { write_failure "Bundled Hermes CLI is missing. Reinstall the FPK."; return 1; }
   [ -x "${PYTHON_BIN}" ] || { write_failure "Bundled Python runtime is missing. Reinstall the FPK."; return 1; }
+  [ -x "${PYTHON_ROOT}/node/bin/agent-browser" ] || { write_failure "Bundled agent-browser runtime is missing. Reinstall the FPK."; return 1; }
   [ -x "${NODE_ROOT}/bin/node" ] || { write_failure "Bundled Hermes Node runtime is missing. Reinstall the FPK."; return 1; }
   [ -f "${RUNTIME_ROOT}/runtime-manifest.json" ] || { write_failure "Bundled runtime manifest is missing."; return 1; }
 }
@@ -75,7 +76,7 @@ start_process() {
   system_path="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
   export HOME="${PKGHOME}"
   export TMPDIR="${PKGTMP}"
-  export PATH="${CODING_AGENT_ROOT}/npm/bin:${VENV_ROOT}/bin:${NODE_ROOT}/bin:${APPDEST}:${system_path}"
+  export PATH="${CODING_AGENT_ROOT}/npm/bin:${VENV_ROOT}/bin:${PYTHON_ROOT}/node/bin:${NODE_ROOT}/bin:${APPDEST}:${system_path}"
   export VIRTUAL_ENV="${VENV_ROOT}"
   export UV_PROJECT_ENVIRONMENT="${VENV_ROOT}"
   export UV_PYTHON="${PYTHON_BIN}"
@@ -85,6 +86,7 @@ start_process() {
   export HERMES_AGENT_CLI_PYTHON="${PYTHON_BIN}"
   export HERMES_AGENT_BRIDGE_PYTHON="${PYTHON_BIN}"
   export HERMES_AGENT_ROOT="${PYTHON_ROOT}"
+  export HERMES_AGENT_BROWSER_BIN="${PYTHON_ROOT}/node/bin/agent-browser"
   export HERMES_AGENT_NODE="${NODE_ROOT}/bin/node"
   export HERMES_AGENT_NODE_ROOT="${NODE_ROOT}"
   export HERMES_WEB_UI_MCP_BIN="${APPDEST}/bin/hermes-studio-mcp.mjs"
@@ -95,6 +97,42 @@ start_process() {
   export HERMES_FNOS_CMD_DIR="${SCRIPT_DIR}"
   export AGENT_BROWSER_HOME="${PKGVAR}/browser"
   export PLAYWRIGHT_BROWSERS_PATH="${PYTHON_ROOT}/ms-playwright"
+
+  detect_chrome() {
+    for candidate in \
+      /usr/bin/google-chrome-stable \
+      /usr/bin/google-chrome \
+      /usr/bin/chrome \
+      /usr/bin/chromium \
+      /usr/bin/chromium-browser \
+      /usr/local/bin/google-chrome-stable \
+      /usr/local/bin/google-chrome \
+      /usr/local/bin/chrome \
+      /usr/local/bin/chromium \
+      /opt/google/chrome/google-chrome \
+      /opt/google/chrome/chrome \
+      /opt/chromium/chrome; do
+      if [ -x "${candidate}" ]; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    done
+    for command_name in google-chrome-stable google-chrome chrome chromium chromium-browser; do
+      candidate="$(command -v "${command_name}" 2>/dev/null || true)"
+      if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    done
+    return 1
+  }
+
+  chrome_executable="$(detect_chrome || true)"
+  if [ -n "${chrome_executable}" ]; then
+    export AGENT_BROWSER_EXECUTABLE_PATH="${chrome_executable}"
+  else
+    unset AGENT_BROWSER_EXECUTABLE_PATH
+  fi
   export HERMES_HOME="${PKGVAR}/hermes"
   export HERMES_CODING_AGENT_GLOBAL_HOME="${CODING_AGENT_ROOT}/home"
   export npm_config_prefix="${CODING_AGENT_ROOT}/npm"

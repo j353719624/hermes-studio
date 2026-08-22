@@ -117,10 +117,6 @@ function shouldSkipTransientAutoinject(bundledScript: string | null): boolean {
   )
 }
 
-function isDesktopRuntime(): boolean {
-  return String(process.env.HERMES_DESKTOP || '').trim().toLowerCase() === 'true'
-}
-
 function candidateBundledMcpScripts(): string[] {
   return [
     process.env.HERMES_WEB_UI_MCP_BIN,
@@ -147,15 +143,8 @@ function managedCommandConfig(
   bundledScript: string | null,
 ): Record<string, unknown> {
   // Prefer the bundled script with an absolute path over a bare command name.
-  // On Windows (especially desktop builds), `hermes-studio-mcp` may not be in
-  // PATH even though the bundled .mjs script exists on disk.  Desktop provides
-  // HERMES_AGENT_NODE for the packaged runtime node; fall back to process.execPath.
   if (bundledScript) {
     return { command: runtimeNodePath() || process.execPath, args: [bundledScript, toolset] }
-  }
-
-  if (isDesktopRuntime()) {
-    return { command: 'hermes-studio-mcp', args: [toolset] }
   }
 
   logger.warn({ candidates: candidateBundledMcpScripts() }, '[mcp-autoinject] bundled MCP script not found; falling back to PATH command')
@@ -169,6 +158,22 @@ function managedConfig(
   bundledScript: string | null,
 ): Record<string, unknown> {
   const webUiUrl = process.env.HERMES_WEB_UI_URL?.trim() || `http://127.0.0.1:${config.port}`
+  const browserRuntimeEnv: Record<string, string> = config.fnos
+    ? {
+        ...(process.env.HERMES_AGENT_BROWSER_BIN?.trim()
+          ? { HERMES_AGENT_BROWSER_BIN: process.env.HERMES_AGENT_BROWSER_BIN.trim() }
+          : {}),
+        ...(process.env.AGENT_BROWSER_EXECUTABLE_PATH?.trim()
+          ? { AGENT_BROWSER_EXECUTABLE_PATH: process.env.AGENT_BROWSER_EXECUTABLE_PATH.trim() }
+          : {}),
+        ...(process.env.HERMES_BROWSER_CDP_URL?.trim()
+          ? { HERMES_BROWSER_CDP_URL: process.env.HERMES_BROWSER_CDP_URL.trim() }
+          : {}),
+        ...(process.env.HERMES_BROWSER_CDP_PORTS?.trim()
+          ? { HERMES_BROWSER_CDP_PORTS: process.env.HERMES_BROWSER_CDP_PORTS.trim() }
+          : {}),
+      }
+    : {}
   const env: Record<string, string> = {
     HERMES_WEB_UI_URL: webUiUrl,
     HERMES_WEB_UI_HOME: config.appHome,
@@ -177,6 +182,7 @@ function managedConfig(
     HERMES_MCP_SERVER_NAME: serverName,
     HERMES_MCP_TOOLSET: toolset,
     [MANAGED_ENV_KEY]: '1',
+    ...browserRuntimeEnv,
   }
 
   return {
@@ -218,6 +224,10 @@ function sameConfig(existing: Record<string, any>, desired: Record<string, unkno
     existing.env.HERMES_WEB_UI_PROFILE === desiredEnv.HERMES_WEB_UI_PROFILE &&
     existing.env.HERMES_MCP_SERVER_NAME === desiredEnv.HERMES_MCP_SERVER_NAME &&
     existing.env.HERMES_MCP_TOOLSET === desiredEnv.HERMES_MCP_TOOLSET &&
+    existing.env.HERMES_AGENT_BROWSER_BIN === desiredEnv.HERMES_AGENT_BROWSER_BIN &&
+    existing.env.AGENT_BROWSER_EXECUTABLE_PATH === desiredEnv.AGENT_BROWSER_EXECUTABLE_PATH &&
+    existing.env.HERMES_BROWSER_CDP_URL === desiredEnv.HERMES_BROWSER_CDP_URL &&
+    existing.env.HERMES_BROWSER_CDP_PORTS === desiredEnv.HERMES_BROWSER_CDP_PORTS &&
     existing.env.HERMES_WEB_UI_TOKEN === undefined &&
     existing.env[MANAGED_ENV_KEY] === desiredEnv[MANAGED_ENV_KEY]
 }
