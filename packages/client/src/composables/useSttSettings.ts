@@ -1,6 +1,5 @@
 import { ref, watch } from 'vue'
 import { fetchSttSettings } from '@/api/hermes/stt-settings'
-import { isFnosMode } from '@/api/client'
 import type {
   FetchSttSettingsResponse,
   SttProvider,
@@ -60,7 +59,7 @@ function sanitize(data: Partial<SttSettingsData>): SttSettingsData {
     : DEFAULT.provider
 
   return {
-    provider: isFnosMode() && provider === 'local' ? defaultProvider() : provider,
+    provider,
     openaiModel: typeof data.openaiModel === 'string' && data.openaiModel.trim() ? data.openaiModel : DEFAULT.openaiModel,
     openaiLanguage: typeof data.openaiLanguage === 'string' ? data.openaiLanguage : DEFAULT.openaiLanguage,
     openaiPrompt: typeof data.openaiPrompt === 'string' ? data.openaiPrompt : DEFAULT.openaiPrompt,
@@ -228,9 +227,7 @@ function applyServerSttSettings(response: FetchSttSettingsResponse | SttProvider
     applyServerRow(row)
   }
   if (!Array.isArray(response) && response.activeProvider) {
-    provider.value = isFnosMode() && response.activeProvider === 'local'
-      ? defaultProvider()
-      : response.activeProvider
+    provider.value = response.activeProvider
   }
 }
 

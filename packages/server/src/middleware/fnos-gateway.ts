@@ -4,9 +4,6 @@ import { config, stripPublicBasePath } from '../config'
 
 const DISABLED_API_PREFIXES = [
   '/api/hermes/update',
-  '/api/hermes/runtime-versions',
-  '/api/hermes/stt/local-model',
-  '/api/hermes/stt/local-stream',
 ]
 
 const LAN_DEVICE_PATHS = new Set([
@@ -15,20 +12,8 @@ const LAN_DEVICE_PATHS = new Set([
   '/api/devices/link-status',
 ])
 
-function requestedLocalStt(body: unknown): boolean {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return false
-  const value = body as { provider?: unknown; activeProvider?: unknown }
-  return value.provider === 'local' || value.activeProvider === 'local'
-}
-
 export function isFnosFeatureDisabled(path: string, body?: unknown): boolean {
-  if (DISABLED_API_PREFIXES.some(prefix => (
-    path === prefix || path.startsWith(`${prefix}/`)
-  ))) return true
-
-  if (path === '/api/hermes/stt/settings/local') return true
-  return path === '/api/hermes/stt/settings/active' && requestedLocalStt(body)
-    || path.startsWith('/api/hermes/stt/settings/') && requestedLocalStt(body)
+  return DISABLED_API_PREFIXES.some(prefix => path === prefix || path.startsWith(`${prefix}/`))
 }
 
 export function isLoopbackAddress(address?: string | null): boolean {

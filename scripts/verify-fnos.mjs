@@ -382,9 +382,11 @@ async function verifyLinuxRuntime(stage) {
     const localStt = curlUnix(socket, `${base}/api/hermes/stt/settings/active`, {
       method: 'PUT',
       body: '{"provider":"local"}',
-      headers,
+      headers: [...headers, `Authorization: Bearer ${token}`],
     })
-    if (localStt.status !== 404) fail(`fnOS 本地 STT 切换未被关闭：${localStt.status}`)
+    if (![200, 409].includes(localStt.status)) {
+      fail(`fnOS 本地 STT 接口不可用：${localStt.status} ${localStt.body}`)
+    }
 
     const socketIo = curlUnix(socket, `${base}/socket.io/`, {
       headers,

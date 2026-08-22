@@ -11,7 +11,6 @@ import ProfileSelector from "@/components/layout/ProfileSelector.vue";
 import LanguageSwitch from "@/components/layout/LanguageSwitch.vue";
 import ThemeSwitch from "@/components/layout/ThemeSwitch.vue";
 import VersionManagementModal from "@/components/layout/VersionManagementModal.vue";
-import FnosRuntimeUpgradeModal from "@/components/layout/FnosRuntimeUpgradeModal.vue";
 import { changelog } from "@/data/changelog";
 import { getStoredUserId, getStoredUsername, isFnosMode, isStoredSuperAdmin } from "@/api/client";
 import { clearThemeBackgroundCache } from '@/api/theme'
@@ -33,7 +32,6 @@ const isDesktopShell = computed(() =>
 );
 const showChangelog = ref(false);
 const showVersionManagement = ref(false);
-const showFnosRuntimeUpgrade = ref(false);
 const showDockerUpdateTip = ref(false);
 const isDockerRuntime = computed(() => appStore.isDocker);
 
@@ -384,7 +382,7 @@ function handleUpdateClick() {
         <ThemeSwitch />
       </div>
       <NButton
-        v-if="isDesktopShell && !fnosMode"
+        v-if="(isDesktopShell || fnosMode) && isSuperAdmin"
         type="primary"
         size="tiny"
         block
@@ -396,16 +394,6 @@ function handleUpdateClick() {
           {{ t('sidebar.versionManagement') }}
           <span class="version-update-label">{{ t('sidebar.updateAvailableLabel') }}</span>
         </span>
-      </NButton>
-      <NButton
-        v-if="fnosMode && isSuperAdmin"
-        type="primary"
-        size="tiny"
-        block
-        class="update-btn version-management-btn"
-        @click="showFnosRuntimeUpgrade = true"
-      >
-        {{ t('sidebar.hermesAgentUpgrade') }}
       </NButton>
       <NButton v-if="appStore.clientOutdated" type="warning" size="tiny" block class="update-btn" @click="handleReloadClient">
         {{ t('sidebar.reloadClientVersion', { version: appStore.serverVersion }) }}
@@ -454,8 +442,7 @@ function handleUpdateClick() {
         </div>
       </div>
     </NModal>
-    <VersionManagementModal v-if="isDesktopShell" v-model:show="showVersionManagement" />
-    <FnosRuntimeUpgradeModal v-if="fnosMode && isSuperAdmin" v-model:show="showFnosRuntimeUpgrade" />
+    <VersionManagementModal v-if="isSuperAdmin" v-model:show="showVersionManagement" />
 
     <NModal v-model:show="showDockerUpdateTip" preset="dialog" :title="t('sidebar.dockerUpdateTitle')" style="width: 480px;">
       <div class="docker-update-modal">

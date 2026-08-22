@@ -134,6 +134,10 @@ export function runtimePlatformKey(platformName = process.platform, archName = p
 }
 
 function defaultDesktopRuntimeRoot(): string {
+  if (config.fnos) {
+    const configured = process.env.HERMES_FNOS_RUNTIME_ROOT?.trim()
+    return configured ? resolve(configured) : resolve(config.appHome, '..', 'runtime')
+  }
   return join(config.appHome, 'desktop-runtime')
 }
 
@@ -199,6 +203,31 @@ function readRuntimeManifestVersion(runtimeDir: string): string | undefined {
   const assetName = typeof manifest?.asset?.name === 'string' ? manifest.asset.name : ''
   const match = assetName.match(/hermes-agent-([^-]+)-/)
   return match?.[1]
+}
+
+function readFnosActiveVersionManifest(): ActiveVersionManifest | null {
+  if (!config.fnos) return null
+  const runtimeDirectory = defaultDesktopRuntimeRoot()
+  const version = readRuntimeManifestVersion(runtimeDirectory)
+  if (!version) return null
+  return {
+    schema: 1,
+    hermesRuntimeVersion: version,
+    runtimeDirectory,
+    runtimeRootDirectory: runtimeDirectory,
+    platform: runtimePlatformKey(),
+  }
+}
+
+function listFnosRuntimeVersion(active: ActiveVersionManifest | null): InstalledRuntimeVersion[] {
+  if (!active?.runtimeDirectory || !active.hermesRuntimeVersion) return []
+  return [{
+    version: active.hermesRuntimeVersion,
+    platform: active.platform || runtimePlatformKey(),
+    directory: resolve(active.runtimeDirectory),
+    active: true,
+    manifestHermesRuntimeVersion: active.hermesRuntimeVersion,
+  }]
 }
 
 function requiredRuntimeFileGroups(root: string): string[][] {
@@ -305,6 +334,7 @@ function scanInstalledRuntimeVersions(active = readActiveVersionManifest()): Ins
 }
 
 export function listInstalledRuntimeVersions(active = readActiveVersionManifest()): InstalledRuntimeVersion[] {
+  if (config.fnos) return listFnosRuntimeVersion(active)
   const currentPlatform = runtimePlatformKey()
   const installed = scanInstalledRuntimeVersions(active)
     .filter(item => {
@@ -389,7 +419,7 @@ export async function fetchRemoteVersions(): Promise<{ manifest: RemoteVersionMa
 }
 
 export async function getRuntimeVersionStatus(): Promise<RuntimeVersionStatus> {
-  const active = readActiveVersionManifest()
+  const active = config.fnos ? readFnosActiveVersionManifest() : readActiveVersionManifest()
   const [{ manifest, error }, agentVersion] = await Promise.all([
     fetchRemoteVersions(),
     getHermesAgentVersion(),
@@ -411,7 +441,7 @@ export async function getRuntimeVersionStatus(): Promise<RuntimeVersionStatus> {
       pendingStorageDirectory: active?.pendingRuntimeRootDirectory || '',
       migrationError: active?.runtimeMigrationError || '',
       activationError: active?.runtimeActivationError || '',
-      installed: listInstalledRuntimeVersions(active),
+      installed: config.fnos ? listFnosRuntimeVersion(active) : listInstalledRuntimeVersions(active),
       remoteVersions: normalizeStringList(manifest?.hermes),
     },
     webui: {
@@ -493,6 +523,7 @@ export async function extractTarGzip(archive: string, targetRoot: string): Promi
 }
 
 export async function downloadRuntimeVersion(version: string, source: VersionDownloadSource, onProgress?: DownloadProgressHandler): Promise<InstalledRuntimeVersion> {
+  if (config.fnos) throw new Error('fnOS Runtime 请从版本管理中执行升级')
   const cleanVersion = version.trim()
   if (!cleanVersion) throw new Error('Runtime version is required')
 
@@ -590,6 +621,7 @@ export async function downloadWebUiVersion(version: string, source: VersionDownl
 }
 
 export function activateInstalledRuntimeVersion(version: string): ActiveVersionManifest {
+  if (config.fnos) throw new Error('fnOS Runtime 不支持手动切换已安装版本')
   const cleanVersion = version.trim()
   if (!cleanVersion) throw new Error('Runtime version is required')
 
@@ -624,6 +656,7 @@ export function activateInstalledRuntimeVersion(version: string): ActiveVersionM
 }
 
 export function scheduleRuntimeRootMigration(directory: string): ActiveVersionManifest {
+  if (config.fnos) throw new Error('fnOS Runtime 存储目录由 fnOS 应用管理')
   const selectedDirectory = directory.trim()
   if (!selectedDirectory) throw new Error('Runtime storage directory is required')
   if (process.env.HERMES_DESKTOP_RUNTIME_DIR?.trim()) {
@@ -664,6 +697,7 @@ export function scheduleRuntimeRootMigration(directory: string): ActiveVersionMa
 }
 
 export function deleteInstalledRuntimeVersion(version: string): InstalledRuntimeVersion {
+  if (config.fnos) throw new Error('fnOS Runtime 不支持删除当前应用运行时')
   const cleanVersion = version.trim()
   if (!cleanVersion) throw new Error('Runtime version is required')
 

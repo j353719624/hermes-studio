@@ -6,7 +6,6 @@ import { useSpeech, type MimoTtsOptions, type OpenaiTtsOptions } from '@/composa
 import { usePcmStreamRecorder } from '@/composables/usePcmStreamRecorder'
 import { transcribeSpeech } from '@/api/hermes/stt'
 import { isServerTtsProvider } from '@/api/hermes/tts'
-import { isFnosMode } from '@/api/client'
 import { useVoiceApiConnections } from '@/composables/useVoiceApiConnections'
 import { useVoiceSettings } from '@/composables/useVoiceSettings'
 import { speedToEdgeRate, hzToEdgePitch } from '@/utils/ttsHelpers'
@@ -35,7 +34,6 @@ const message = useMessage()
 const speech = useSpeech()
 const voiceApi = useVoiceApiConnections()
 const voiceSettings = useVoiceSettings()
-const fnosMode = isFnosMode()
 
 const testText = ref(t('settings.voice.testTextDefault'))
 const showAddModal = ref(false)
@@ -383,7 +381,6 @@ async function handleLocalTest() {
 
       <div class="provider-list">
         <LocalSttModelCard
-          v-if="!fnosMode"
           :active="voiceApi.activeSttId.value === 'stt-local'"
           :test-state="cardTestStates['stt-local']"
           @set-active="handleLocalSetActive"

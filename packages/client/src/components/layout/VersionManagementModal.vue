@@ -16,6 +16,12 @@ import {
   type VersionDownloadKind,
   type VersionDownloadSource,
 } from '@/api/hermes/runtime-versions'
+import {
+  fetchFnosRuntimeStatus,
+  upgradeFnosRuntime,
+  type FnosRuntimeStatus,
+} from '@/api/hermes/fnos-runtime'
+import { isFnosMode } from '@/api/client'
 import { desktopBridge } from '@/utils/desktop-bridge'
 
 const props = defineProps<{ show: boolean }>()
@@ -23,15 +29,17 @@ const emit = defineEmits<{ (event: 'update:show', value: boolean): void }>()
 
 const { t } = useI18n()
 const message = useMessage()
+const fnosMode = isFnosMode()
 
 const status = ref<RuntimeVersionStatus | null>(null)
 const jobs = ref<VersionDownloadJob[]>([])
+const fnosStatus = ref<FnosRuntimeStatus | null>(null)
 const loading = ref(false)
 const actionLoading = ref<Record<string, boolean>>({})
 const loadError = ref('')
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const canSelectRuntimeDirectory = computed(() => typeof desktopBridge()?.selectRuntimeDirectory === 'function')
+const canSelectRuntimeDirectory = computed(() => !fnosMode && typeof desktopBridge()?.selectRuntimeDirectory === 'function')
 const isDefaultRuntimeDirectory = computed(() => {
   const defaultDirectory = status.value?.hermes.defaultStorageDirectory
   const selectedDirectory = status.value?.hermes.pendingStorageDirectory || status.value?.hermes.storageDirectory
@@ -48,6 +56,8 @@ const runtimeVersions = computed(() => uniqueVersions([
 ]))
 
 const runtimeJobs = computed(() => jobs.value.filter(job => job.kind === 'runtime'))
+const fnosUpdate = computed(() => fnosStatus.value?.update || null)
+const fnosUpdateRunning = computed(() => fnosUpdate.value?.status === 'queued' || fnosUpdate.value?.status === 'running')
 
 watch(() => props.show, show => {
   if (show) {
@@ -72,7 +82,9 @@ async function loadAll() {
   loading.value = true
   loadError.value = ''
   try {
-    await Promise.all([loadStatus(), loadJobs()])
+    const tasks: Promise<void>[] = [loadStatus(), loadJobs()]
+    if (fnosMode) tasks.push(loadFnosStatus())
+    await Promise.all(tasks)
     if (hasRunningJobs()) startPolling()
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err)
@@ -90,10 +102,15 @@ async function loadJobs() {
   jobs.value = nextJobs.jobs
 }
 
+async function loadFnosStatus() {
+  fnosStatus.value = await fetchFnosRuntimeStatus()
+}
+
 async function refreshJobs() {
   try {
     const hadRunning = hasRunningJobs()
     await loadJobs()
+    if (fnosMode) await loadFnosStatus()
     if (hadRunning && !hasRunningJobs()) {
       stopPolling()
       await loadStatus()
@@ -119,7 +136,7 @@ function stopPolling() {
 }
 
 function hasRunningJobs(): boolean {
-  return runtimeJobs.value.some(job => job.status === 'queued' || job.status === 'running')
+  return runtimeJobs.value.some(job => job.status === 'queued' || job.status === 'running') || fnosUpdateRunning.value
 }
 
 function runtimeFor(version: string): InstalledRuntimeVersion | undefined {
@@ -195,8 +212,23 @@ function jobProgressText(job: VersionDownloadJob): string {
   return messageText(job.message)
 }
 
+function fnosJobLabel(): string {
+  const job = fnosUpdate.value
+  if (!job) return ''
+  if (job.status === 'completed') return t('runtimeVersions.jobStatus.completed')
+  if (job.status === 'failed') return t('runtimeVersions.jobStatus.failed')
+  return t(`fnosRuntimeUpdate.stage.${job.stage}`)
+}
+
 async function startRuntimeDownload(version: string, source: VersionDownloadSource) {
   await runAction(`download-runtime-${source}-${version}`, async () => {
+    if (fnosMode) {
+      const response = await upgradeFnosRuntime(version)
+      fnosStatus.value = fnosStatus.value ? { ...fnosStatus.value, update: response.job } : await fetchFnosRuntimeStatus()
+      message.success(t('fnosRuntimeUpdate.started'))
+      startPolling()
+      return
+    }
     const response = await downloadRuntimeVersion(version, source)
     jobs.value = [response.job, ...jobs.value.filter(job => job.id !== response.job.id)]
     message.success(t('runtimeVersions.downloadStarted'))
@@ -288,6 +320,7 @@ async function removeRuntime(version: string) {
             </span>
           </div>
           <NAlert
+            v-if="!fnosMode"
             data-testid="runtime-cli-update-note"
             type="info"
             :bordered="false"
@@ -296,6 +329,9 @@ async function removeRuntime(version: string) {
               <span>{{ t('runtimeVersions.cliUpdateDescription') }}</span>
               <code>hermes-studio cli update</code>
             </div>
+          </NAlert>
+          <NAlert v-else type="info" :bordered="false">
+            {{ t('fnosRuntimeUpdate.restartDescription') }}
           </NAlert>
           <div class="runtime-directory-control">
             <div class="runtime-directory-value">
@@ -356,6 +392,9 @@ async function removeRuntime(version: string) {
                 <NTag v-if="activeJob('runtime', version)" size="small" :type="jobType(activeJob('runtime', version)!.status)" :bordered="false">
                   {{ jobLabel(activeJob('runtime', version)!) }}
                 </NTag>
+                <NTag v-if="fnosMode && fnosUpdate?.version === version" size="small" :type="fnosUpdate.status === 'failed' ? 'error' : fnosUpdate.status === 'completed' ? 'success' : 'info'" :bordered="false">
+                  {{ fnosJobLabel() }}
+                </NTag>
               </div>
               <div class="version-actions">
                 <NButton
@@ -384,7 +423,18 @@ async function removeRuntime(version: string) {
                   {{ t('runtimeVersions.deleteRuntimeConfirm', { version }) }}
                 </NPopconfirm>
                 <NButton
-                  v-if="!runtimeFor(version)"
+                  v-if="fnosMode && !runtimeFor(version)"
+                  size="small"
+                  type="primary"
+                  secondary
+                  :disabled="fnosUpdateRunning"
+                  :loading="actionLoading[`download-runtime-cf-${version}`]"
+                  @click="startRuntimeDownload(version, 'cf')"
+                >
+                  {{ t('fnosRuntimeUpdate.upgrade') }}
+                </NButton>
+                <NButton
+                  v-if="!fnosMode && !runtimeFor(version)"
                   size="small"
                   type="primary"
                   secondary
@@ -395,7 +445,7 @@ async function removeRuntime(version: string) {
                   {{ t('runtimeVersions.downloadGithub') }}
                 </NButton>
                 <NButton
-                  v-if="!runtimeFor(version)"
+                  v-if="!fnosMode && !runtimeFor(version)"
                   size="small"
                   type="primary"
                   secondary

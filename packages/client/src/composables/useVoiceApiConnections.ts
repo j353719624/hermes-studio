@@ -1,6 +1,5 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isFnosMode } from '@/api/client'
 import {
   deleteTtsProvider,
   fetchTtsSettings,
@@ -67,14 +66,13 @@ function stringSetting(settings: object, key: string): string {
 
 export function useVoiceApiConnections() {
   const { t } = useI18n()
-  const fnosMode = isFnosMode()
   const connections = ref<VoiceApiConnection[]>([])
   const loading = ref(false)
   const vs = useVoiceSettings()
   const stt = useSttSettings()
   const localStt = useLocalSttModel()
   const activeTtsProvider = ref<StoredTtsProvider>(vs.provider.value === 'webspeech' ? 'edge' : vs.provider.value)
-  const activeSttProvider = ref<SttProvider>(fnosMode && stt.provider.value === 'local' ? 'browser' : stt.provider.value)
+  const activeSttProvider = ref<SttProvider>(stt.provider.value)
 
   const activeTtsId = computed(() => `tts-${activeTtsProvider.value}`)
   const activeSttId = computed(() => `stt-${activeSttProvider.value}`)
@@ -196,9 +194,7 @@ export function useVoiceApiConnections() {
     loading.value = true
     try {
       await stt.loadServerSttSettings(true)
-      const localStatusPromise = fnosMode
-        ? Promise.resolve(null)
-        : localStt.refresh().catch(() => null)
+      const localStatusPromise = localStt.refresh().catch(() => null)
       const [ttsData, sttData, localStatus] = await Promise.all([
         fetchTtsSettings(),
         fetchSttSettings(),
@@ -209,11 +205,8 @@ export function useVoiceApiConnections() {
         vs.setProvider(ttsData.activeProvider)
       }
       if (sttData.activeProvider && isSttProvider(sttData.activeProvider)) {
-        const nextProvider = fnosMode && sttData.activeProvider === 'local'
-          ? 'browser'
-          : sttData.activeProvider
-        activeSttProvider.value = nextProvider
-        stt.setProvider(nextProvider)
+        activeSttProvider.value = sttData.activeProvider
+        stt.setProvider(sttData.activeProvider)
       }
 
       const newConnections: VoiceApiConnection[] = [
@@ -255,8 +248,6 @@ export function useVoiceApiConnections() {
           settings: {},
         },
       ]
-      if (fnosMode) newConnections.splice(1, 1)
-
       for (const row of ttsData.providers) {
         const connection = makeTtsConnection(row.provider, row.settings, row.secrets?.apiKey === '[stored]')
         const existingBuiltIn = newConnections.find(c => c.id === connection.id)
