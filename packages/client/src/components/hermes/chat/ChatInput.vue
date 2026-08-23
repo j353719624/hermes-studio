@@ -871,11 +871,6 @@ function addFnosFiles(paths: string[]) {
   if (paths.length > 0) textareaRef.value?.focus()
 }
 
-function addBrowserAttachment(file: File, context: string) {
-  addFile(file, context)
-  textareaRef.value?.focus()
-}
-
 function handleAttachClick() {
   fileInputRef.value?.click()
 }

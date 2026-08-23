@@ -53,6 +53,7 @@ async function handleFnosPathUpload(ctx: any, body: unknown) {
   const uploadDir = getProfileUploadDir(requestedProfile(ctx))
   await mkdir(uploadDir, { recursive: true })
   const results: { name: string; path: string }[] = []
+  const maxUploadSize = getMaxUploadSize()
   for (const rawPath of paths) {
     if (!rawPath.trim() || !isAbsolute(rawPath) || rawPath.includes('\0')) {
       ctx.status = 400
@@ -72,9 +73,9 @@ async function handleFnosPathUpload(ctx: any, body: unknown) {
       ctx.body = { error: `File not found: ${basename(sourcePath)}`, code: 'not_found' }
       return
     }
-    if (info.size > MAX_UPLOAD_SIZE) {
+    if (info.size > maxUploadSize) {
       ctx.status = 413
-      ctx.body = { error: `File too large (max ${MAX_UPLOAD_SIZE / 1024 / 1024}MB)`, code: 'file_too_large' }
+      ctx.body = { error: `File too large (max ${Math.round(maxUploadSize / 1024 / 1024)}MB)`, code: 'file_too_large' }
       return
     }
     const name = uploadName(basename(sourcePath))
