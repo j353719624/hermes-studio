@@ -1202,6 +1202,7 @@ export async function handleEkkoAgentRun(
       }),
       requestUserClarification: (request: AgentClarificationRequest) => waitForEkkoClarification(request, {
         sessionId,
+        runId: runId || turnId,
         signal: abortController.signal,
         onRequested: pending => {
           emit('clarify.requested', {
