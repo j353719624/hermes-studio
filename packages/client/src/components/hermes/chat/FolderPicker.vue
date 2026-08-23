@@ -4,7 +4,6 @@ import { NButton, NDropdown, NInput, NModal, NSpace, NSpin, useDialog, useMessag
 import { useI18n } from 'vue-i18n'
 import { request } from '@/api/client'
 import { copyToClipboard } from '@/utils/clipboard'
-import { fnosTrimApp, pickFnosSharedFolder } from '@/utils/fnos-folder-picker'
 
 interface FolderEntry {
   name: string
@@ -46,8 +45,6 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const dialog = useDialog()
 const message = useMessage()
-const trimApp = fnosTrimApp
-const canPickFnosFolder = computed(() => trimApp.isWeb && !trimApp.isStandaloneWeb)
 const loading = ref(false)
 const basePath = ref('')
 const folders = ref<FolderEntry[]>([])
@@ -64,7 +61,6 @@ const renameModalVisible = ref(false)
 const renameMode = ref<'create' | 'rename'>('create')
 const renameInput = ref('')
 const actionLoading = ref(false)
-const pickingFnosFolder = ref(false)
 
 watch(() => props.modelValue, (v) => { selectedPath.value = v || '' })
 
@@ -72,26 +68,6 @@ function updateSelectedPath(value: string | null) {
   const next = String(value || '').trim()
   selectedPath.value = next
   emit('update:modelValue', next || null)
-}
-
-async function pickFnosFolder() {
-  if (!canPickFnosFolder.value || pickingFnosFolder.value) return
-  pickingFnosFolder.value = true
-  try {
-    const selected = await pickFnosSharedFolder(trimApp, {
-      title: t('chat.folderPickerSelectFnos'),
-      okText: t('chat.folderPickerSelect'),
-      sidebarGroup: ['myFiles', 'otherShare', 'external'],
-    })
-    if (selected) {
-      updateSelectedPath(selected)
-    }
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : ''
-    message.error(detail || t('chat.folderPickerSelectFailed'))
-  } finally {
-    pickingFnosFolder.value = false
-  }
 }
 
 async function loadFolders(subPath = ''): Promise<FolderListResponse | null> {
@@ -115,7 +91,7 @@ function relativeParentPath(path: string) {
   }
   const parts = path.split('/').filter(Boolean)
   parts.pop()
-  return parts.join('/')
+  return path.startsWith('/') ? `/${parts.join('/')}` : parts.join('/')
 }
 
 async function refreshFolderList(subPath = '') {
@@ -127,7 +103,9 @@ async function refreshFolderList(subPath = '') {
   loadFailed.value = false
   if (!subPath) {
     basePath.value = res.base
-    folders.value = res.folders
+    // fnOS returns authorized roots separately. Prefer them when present so
+    // a response cannot hide granted folders behind the application workspace.
+    folders.value = res.roots?.length ? res.roots : res.folders
     return
   }
   childrenCache.value.set(subPath, res.folders)
@@ -135,9 +113,6 @@ async function refreshFolderList(subPath = '') {
 }
 
 onMounted(async () => {
-  // Establish the fnOS host bridge while the picker is rendering so the
-  // directory dialog does not pay the connection handshake on first click.
-  if (canPickFnosFolder.value) void trimApp.ready().catch(() => undefined)
   loading.value = true
   await refreshFolderList()
   loading.value = false
@@ -352,14 +327,6 @@ const flatNodes = computed<FlatNode[]>(() => {
         class="folder-path-input"
         @update:value="updateSelectedPath"
       />
-      <NButton
-        v-if="canPickFnosFolder"
-        size="small"
-        :loading="pickingFnosFolder"
-        @click="pickFnosFolder"
-      >
-        📁 {{ t('chat.folderPickerSelectFnos') }}
-      </NButton>
     </div>
     <div v-if="loading" class="folder-picker-loading">
       <NSpin size="small" />

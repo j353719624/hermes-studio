@@ -53,8 +53,6 @@ import { mcpRoutes } from './hermes/mcp'
 import { runtimeVersionRoutes } from './hermes/runtime-versions'
 import { fnosRuntimeRoutes } from './hermes/fnos-runtime'
 import { writeGateRoutes } from './hermes/write-gate'
-import { petdexPublicRoutes, petdexRoutes } from './hermes/petdex'
-import { petRoutes } from './hermes/pets'
 import { fnosBrowserConfigRoutes } from './hermes/fnos-browser-config'
 import { fnosSystemRoutes } from './hermes/fnos-system'
 
@@ -72,7 +70,6 @@ export function registerRoutes(app: any, authMiddleware: Array<(ctx: Context, ne
   app.use(codexProxyRoutes.routes())
   app.use(ttsRoutes.routes())
   app.use(apiDocsRoutes.routes())
-  app.use(petdexPublicRoutes.routes())
   app.use(groupChatPublicRoutes.routes())
   app.use(chatWebhookPublicRoutes.routes())
 
@@ -126,8 +123,6 @@ export function registerRoutes(app: any, authMiddleware: Array<(ctx: Context, ne
   app.use(runtimeVersionRoutes.routes())         // Runtime and version management
   app.use(fnosRuntimeRoutes.routes())            // fnOS Runtime-only upgrade
   app.use(writeGateRoutes.routes())              // Hermes Agent write approval review
-  app.use(petdexRoutes.routes())
-  app.use(petRoutes.routes())
   app.use(fnosBrowserConfigRoutes.routes())
   app.use(fnosSystemRoutes.routes())
 }

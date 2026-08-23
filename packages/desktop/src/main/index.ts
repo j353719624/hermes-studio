@@ -6,7 +6,6 @@ import {
   Menu,
   nativeImage,
   Notification,
-  screen,
   session,
   shell,
   systemPreferences,
@@ -43,21 +42,12 @@ const PORT = Number(process.env.HERMES_DESKTOP_PORT) || 8748
 const START_HIDDEN = process.argv.includes('--hidden')
 const QUIT_EXISTING = process.argv.includes('--quit')
 const APP_USER_MODEL_ID = 'com.hermeswebui.studio'
-const PET_WINDOW_DEFAULT_WIDTH = 300
-const PET_WINDOW_DEFAULT_HEIGHT = 320
-const PET_WINDOW_MIN_SIZE = 72
-const PET_WINDOW_MAX_SIZE = 1200
-const PET_WINDOW_REFRESH_CHANNEL = 'hermes-desktop:pet-window-refresh'
 const WINDOW_STATE_CHANGE_CHANNEL = 'hermes-desktop:window-state-change'
 const BROWSER_STATE_CHANGE_CHANNEL = 'hermes-desktop:browser-state-change'
 const BROWSER_ANNOTATION_REQUEST_CHANNEL = 'hermes-desktop:browser-annotation-request'
 const DESKTOP_DISABLED_CHROMIUM_FEATURES = ['CompressionDictionaryTransport', 'CompressionDictionaryTransportBackend']
 type WindowControlAction = 'minimize' | 'toggle-maximize' | 'close'
-type DesktopWindowBounds = { x: number; y: number; width: number; height: number }
-
 let mainWindow: BrowserWindow | null = null
-let petWindow: BrowserWindow | null = null
-let petWindowLoadPromise: Promise<void> | null = null
 const chatWindows = new Map<string, BrowserWindow>()
 let serverUrl: string | null = null
 let tray: Tray | null = null
@@ -149,40 +139,6 @@ async function prepareAppShutdown(): Promise<void> {
   await appShutdownPromise
 }
 
-function defaultPetWindowBounds(): DesktopWindowBounds {
-  const { workArea } = screen.getPrimaryDisplay()
-  return {
-    x: Math.round(workArea.x + workArea.width - PET_WINDOW_DEFAULT_WIDTH - 28),
-    y: Math.round(workArea.y + workArea.height - PET_WINDOW_DEFAULT_HEIGHT - 28),
-    width: PET_WINDOW_DEFAULT_WIDTH,
-    height: PET_WINDOW_DEFAULT_HEIGHT,
-  }
-}
-
-function petWindowState() {
-  const target = petWindow && !petWindow.isDestroyed() ? petWindow : null
-  return {
-    bounds: target?.getBounds() || defaultPetWindowBounds(),
-    visible: !!target?.isVisible(),
-  }
-}
-
-function sanitizePetWindowBounds(input: unknown): DesktopWindowBounds | null {
-  if (!input || typeof input !== 'object') return null
-  const value = input as Partial<DesktopWindowBounds>
-  const x = Number(value.x)
-  const y = Number(value.y)
-  const width = Number(value.width)
-  const height = Number(value.height)
-  if (![x, y, width, height].every(Number.isFinite)) return null
-  return {
-    x: Math.round(x),
-    y: Math.round(y),
-    width: Math.round(Math.min(PET_WINDOW_MAX_SIZE, Math.max(PET_WINDOW_MIN_SIZE, width))),
-    height: Math.round(Math.min(PET_WINDOW_MAX_SIZE, Math.max(PET_WINDOW_MIN_SIZE, height))),
-  }
-}
-
 function webUiHashUrl(hashPath: string): string | null {
   if (!serverUrl) return null
   const normalizedHash = hashPath.startsWith('/') ? hashPath : `/${hashPath}`
@@ -193,79 +149,9 @@ function mainRouteUrl(): string | null {
   return webUiHashUrl('/hermes/chat')
 }
 
-function petRouteUrl(): string | null {
-  return webUiHashUrl('/desktop-pet')
-}
-
 function chatRouteUrl(sessionId: string, profile?: string): string | null {
   const query = profile ? `?profile=${encodeURIComponent(profile)}` : ''
   return webUiHashUrl(`/desktop-chat/${encodeURIComponent(sessionId)}${query}`)
-}
-
-function ensurePetWindow(): BrowserWindow {
-  if (petWindow && !petWindow.isDestroyed()) return petWindow
-
-  petWindow = new BrowserWindow({
-    ...defaultPetWindowBounds(),
-    title: 'Hermes Pet',
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    ...(process.platform === 'darwin' ? { roundedCorners: false } : {}),
-    ...(process.platform === 'win32' ? { thickFrame: false } : {}),
-    resizable: false,
-    maximizable: false,
-    minimizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    show: false,
-    acceptFirstMouse: true,
-    autoHideMenuBar: true,
-    alwaysOnTop: true,
-    webPreferences: {
-      preload: join(__dirname, '..', 'preload', 'index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      additionalArguments: ['--hermes-window-kind=pet'],
-    },
-  })
-  petWindow.setBackgroundColor('#00000000')
-  petWindow.setHasShadow(false)
-  petWindow.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'normal')
-  if (process.platform === 'darwin') {
-    petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false })
-  }
-  petWindow.on('closed', () => {
-    petWindow = null
-    petWindowLoadPromise = null
-  })
-  petWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
-      return { action: 'allow' }
-    }
-    shell.openExternal(url).catch(() => undefined)
-    return { action: 'deny' }
-  })
-  return petWindow
-}
-
-async function loadPetWindowRoute(): Promise<void> {
-  const url = petRouteUrl()
-  if (!url) return
-  const target = ensurePetWindow()
-  if (target.webContents.getURL() === url) return
-  if (!petWindowLoadPromise) {
-    petWindowLoadPromise = target.loadURL(url)
-      .catch(err => {
-        console.warn('[desktop-pet] failed to load pet window:', err)
-      })
-      .finally(() => {
-        petWindowLoadPromise = null
-      })
-  }
-  await petWindowLoadPromise
 }
 
 function windowState(target: BrowserWindow | null = mainWindow) {
@@ -364,7 +250,6 @@ async function handleResetDefaultLogin() {
     const url = await startWebUiServer(PORT)
     serverUrl = url
     if (mainWindow && !mainWindow.isDestroyed()) await mainWindow.loadURL(url)
-    await loadPetWindowRoute()
     await clearWebLoginSession()
     await showDesktopMessageBox({
       type: 'info',
@@ -943,7 +828,6 @@ async function bootstrap(source?: RuntimeDownloadSource) {
     serverUrl = url
     updateTrayMenu()
     if (mainWindow) await mainWindow.loadURL(mainRouteUrl() || url)
-    await loadPetWindowRoute()
   } catch (err) {
     console.error('Failed to start Web UI server:', err)
     if (mainWindow) {
@@ -1089,27 +973,6 @@ ipcMain.handle('hermes-desktop:window-control', (event, action?: unknown) => {
   const target = BrowserWindow.fromWebContents(event.sender)
   if (action !== 'minimize' && action !== 'toggle-maximize' && action !== 'close') return windowState(target)
   return handleWindowControl(target, action)
-})
-ipcMain.handle('hermes-desktop:get-pet-window-state', () => petWindowState())
-ipcMain.handle('hermes-desktop:set-pet-window-bounds', (_event, bounds?: unknown) => {
-  const nextBounds = sanitizePetWindowBounds(bounds)
-  if (!nextBounds) return petWindowState()
-  const target = ensurePetWindow()
-  target.setBounds(nextBounds, false)
-  return petWindowState()
-})
-ipcMain.handle('hermes-desktop:set-pet-window-visible', async (_event, visible?: unknown) => {
-  if (visible === false) {
-    if (!petWindow || petWindow.isDestroyed()) return petWindowState()
-    petWindow.hide()
-    return petWindowState()
-  }
-  const fromPetWindow = !!petWindow && !petWindow.isDestroyed() && _event.sender === petWindow.webContents
-  await loadPetWindowRoute()
-  const target = ensurePetWindow()
-  if (!fromPetWindow) target.webContents.send(PET_WINDOW_REFRESH_CHANNEL)
-  target.showInactive()
-  return petWindowState()
 })
 function resolveNotificationIcon(icon: unknown): string {
   if (typeof icon !== 'string') return desktopIcon()

@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const closeDbMock = vi.hoisted(() => vi.fn())
-const stopPreviewRuntimeMock = vi.hoisted(() => vi.fn(async () => {}))
 const shutdownManagedGatewaysMock = vi.hoisted(() => vi.fn(async () => ({ stopped: 0 })))
 const stopOutboundRelayClientMock = vi.hoisted(() => vi.fn())
 const codingAgentShutdownMock = vi.hoisted(() => vi.fn())
 const shutdownLocalSttRuntimeMock = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('../../packages/server/src/db', () => ({ closeDb: closeDbMock }))
-vi.mock('../../packages/server/src/controllers/update', () => ({ stopPreviewRuntime: stopPreviewRuntimeMock }))
 vi.mock('../../packages/server/src/services/hermes/gateway-runner', () => ({
   shutdownManagedGateways: shutdownManagedGatewaysMock,
 }))
@@ -82,7 +80,7 @@ describe('graceful shutdown background delivery ordering', () => {
   })
 
   it('force-kills the bridge before the shutdown deadline exits the server', async () => {
-    stopPreviewRuntimeMock.mockImplementationOnce(() => new Promise<void>(() => {}))
+    shutdownLocalSttRuntimeMock.mockImplementationOnce(() => new Promise<void>(() => {}))
     const agentBridgeManager = {
       stop: vi.fn(async () => {}),
       forceStop: vi.fn(),
@@ -101,7 +99,7 @@ describe('graceful shutdown background delivery ordering', () => {
 
   it('preserves the configured bridge across the forced shutdown deadline', async () => {
     process.env.HERMES_AGENT_BRIDGE_STOP_ON_SHUTDOWN = '0'
-    stopPreviewRuntimeMock.mockImplementationOnce(() => new Promise<void>(() => {}))
+    shutdownLocalSttRuntimeMock.mockImplementationOnce(() => new Promise<void>(() => {}))
     const agentBridgeManager = {
       stop: vi.fn(async () => {}),
       forceStop: vi.fn(),

@@ -128,7 +128,6 @@ export default {
     models: 'Модели',
     profiles: 'Профили',
     plugins: 'Плагины',
-    petdex: 'Pets',
     skills: 'Навыки',
     memory: 'Память',
     logs: 'Логи',
@@ -744,9 +743,6 @@ export default {
     folderPickerEmpty: '(Пусто)',
     folderPickerNoFolders: 'Нет папок рабочей области',
     folderPickerSelected: 'Выбрано:',
-    folderPickerSelectFnos: 'Выбрать папку fnOS',
-    folderPickerSelect: 'Выбрать папку',
-    folderPickerSelectFailed: 'Не удалось выбрать папку fnOS',
     workspaceDefault: 'По умолчанию',
     workspaceDefaultTooltip: 'Эта рабочая область задана по умолчанию и будет автоматически подставляться в новых чатах',
     workspacePin: 'Сделать рабочей областью по умолчанию',
@@ -1417,29 +1413,6 @@ export default {
     },
   },
 
-
-  petdex: {
-    title: 'Petdex Pets',
-    subtitle: 'Browse the public petdex catalog used by Hermes desktop pets.',
-    refresh: 'Refresh',
-    adopt: 'Adopt',
-    active: 'Active',
-    adopted: 'Adopted {name}',
-    adoptFailed: 'Failed to adopt pet',
-    loadFailed: 'Failed to load petdex catalog',
-    searchPlaceholder: 'Search by name, slug, author, or kind',
-    kindFilter: 'Kind',
-    spritesheet: 'Spritesheet',
-    submittedBy: 'By {name}',
-    empty: 'No pets match the current filters.',
-    showMore: 'Show {count} more',
-    summary: {
-      total: 'Catalog total',
-      visible: 'Matching',
-      kinds: 'Kinds',
-      generatedAt: 'Generated at',
-    },
-  },
 
   memory: {
     title: 'Память',

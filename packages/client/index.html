@@ -125,9 +125,6 @@
         if (desktop?.isDesktop && desktop?.platform === 'win32') {
           document.documentElement.classList.add('hermes-desktop-windows');
         }
-        if (desktop?.windowKind === 'pet' || window.location.hash.startsWith('#/desktop-pet')) {
-          document.documentElement.classList.add('hermes-desktop-pet-window');
-        }
       } catch (e) {
         console.warn('Failed to apply theme:', e);
       }

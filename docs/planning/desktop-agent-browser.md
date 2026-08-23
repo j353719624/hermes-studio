@@ -111,7 +111,7 @@ browser
 
 ### 4.3 Electron
 
-当前桌面端只有主 <code>BrowserWindow</code> 和宠物窗口，没有
+当前桌面端只有主 <code>BrowserWindow</code>，没有
 <code>WebContentsView</code>，也没有浏览器标签页、Browser Broker 或浏览器 IPC。
 
 ## 五、平台边界

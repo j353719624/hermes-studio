@@ -5,11 +5,6 @@ export interface DesktopWindowBounds {
   height: number
 }
 
-export interface DesktopPetWindowState {
-  bounds: DesktopWindowBounds
-  visible: boolean
-}
-
 export interface DesktopBrowserTab {
   id: string
   profileId: string
@@ -129,14 +124,10 @@ export interface HermesDesktopBridge {
   getWindowState: () => Promise<{ isMaximized: boolean }>
   windowControl: (action: 'minimize' | 'toggle-maximize' | 'close') => Promise<{ isMaximized: boolean }>
   onWindowStateChange?: (callback: (state: { isMaximized: boolean }) => void) => () => void
-  getPetWindowState?: () => Promise<DesktopPetWindowState>
-  setPetWindowBounds?: (bounds: DesktopWindowBounds) => Promise<DesktopPetWindowState>
-  setPetWindowVisible?: (visible: boolean) => Promise<DesktopPetWindowState>
-  onPetWindowRefresh?: (callback: () => void) => () => void
   browser?: DesktopBrowserBridge
   platform: string
   isDesktop: boolean
-  windowKind?: 'main' | 'pet' | 'chat'
+  windowKind?: 'main' | 'chat'
 }
 
 export type WindowWithHermesDesktop = Window & typeof globalThis & {
@@ -165,10 +156,6 @@ export function hasDesktopBrowserBridge(): boolean {
 
 export function isDesktopShell(): boolean {
   return desktopBridge()?.isDesktop === true
-}
-
-export function isDesktopPetWindow(): boolean {
-  return desktopBridge()?.windowKind === 'pet'
 }
 
 export function isDesktopChatWindow(): boolean {

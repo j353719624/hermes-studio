@@ -12,7 +12,6 @@ import SettingRow from './SettingRow.vue'
 const settingsStore = useSettingsStore()
 const message = useMessage()
 const { t } = useI18n()
-const showReasoningUi = true
 const chatInputHeight = computed(() => clampChatInputHeight(settingsStore.display.chat_input_height))
 
 async function save(values: Record<string, any>) {
@@ -130,7 +129,7 @@ async function testCompletionNotification() {
     <SettingRow :label="t('settings.display.compact')" :hint="t('settings.display.compactHint')">
       <NSwitch :value="settingsStore.display.compact" @update:value="v => save({ compact: v })" />
     </SettingRow>
-    <SettingRow v-if="showReasoningUi" :label="t('settings.display.showReasoning')" :hint="t('settings.display.showReasoningHint')">
+    <SettingRow :label="t('settings.display.showReasoning')" :hint="t('settings.display.showReasoningHint')">
       <NSwitch :value="settingsStore.display.show_reasoning" @update:value="v => save({ show_reasoning: v })" />
     </SettingRow>
     <SettingRow :label="t('settings.display.showCost')" :hint="t('settings.display.showCostHint')">

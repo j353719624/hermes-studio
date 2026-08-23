@@ -20,7 +20,6 @@ const DesktopTitleBar = defineAsyncComponent(async () => (await import('@/compon
 const SessionSearchModal = defineAsyncComponent(async () => (await import('@/components/hermes/chat/SessionSearchModal.vue')).default)
 const DefaultCredentialPrompt = defineAsyncComponent(async () => (await import('@/components/auth/DefaultCredentialPrompt.vue')).default)
 const ProviderConfigurationPrompt = defineAsyncComponent(async () => (await import('@/components/hermes/models/ProviderConfigurationPrompt.vue')).default)
-const WebPet = defineAsyncComponent(async () => (await import('@/components/hermes/pets/WebPet.vue')).default)
 const GlobalPendingActions = defineAsyncComponent(async () => (await import('@/components/layout/GlobalPendingActions.vue')).default)
 
 const {
@@ -67,8 +66,6 @@ const desktopTitleBarLeft = computed(() => {
   if (showAppSidebar.value) return appStore.sidebarCollapsed ? 84 : 260
   return appStore.pageSidebarExpanded ? 260 : 10
 })
-const isDesktopPetRoute = computed(() => route.name === 'desktop.pet')
-const showWebPet = computed(() => !isLoginPage.value && !isStandaloneChatPage.value && !isDesktopShell.value && !isDesktopPetRoute.value)
 const desktopPlatformClass = computed(() => desktopPlatform.value ? `desktop-platform-${desktopPlatform.value}` : '')
 const isDesktopWindowMaximized = ref(false)
 let stopWindowStateListener: (() => void) | undefined
@@ -130,9 +127,7 @@ useKeyboard()
       <AuthEventListener />
       <NDialogProvider>
         <NNotificationProvider>
-          <router-view v-if="isDesktopPetRoute" />
           <div
-            v-else
             class="app-shell"
             :class="[
               desktopPlatformClass,
@@ -163,11 +158,10 @@ useKeyboard()
               </main>
             </div>
           </div>
-          <WebPet v-if="showWebPet" />
-          <SessionSearchModal v-if="!isDesktopPetRoute && !isStandaloneChatPage && sessionSearchOpen" />
-          <DefaultCredentialPrompt v-if="!isDesktopPetRoute && !isStandaloneChatPage" />
-          <ProviderConfigurationPrompt v-if="!isDesktopPetRoute && !isStandaloneChatPage" />
-          <GlobalPendingActions v-if="!isLoginPage && !isDesktopPetRoute && !isStandaloneChatPage" />
+          <SessionSearchModal v-if="!isStandaloneChatPage && sessionSearchOpen" />
+          <DefaultCredentialPrompt v-if="!isStandaloneChatPage" />
+          <ProviderConfigurationPrompt v-if="!isStandaloneChatPage" />
+          <GlobalPendingActions v-if="!isLoginPage && !isStandaloneChatPage" />
         </NNotificationProvider>
       </NDialogProvider>
     </NMessageProvider>
@@ -259,8 +253,7 @@ useKeyboard()
   :deep(.chat-panel),
   :deep(.history-panel),
   :deep(.group-chat-panel),
-  :deep(.workflow-view),
-  :deep(.petdex-view) {
+  :deep(.workflow-view) {
     background-color: transparent;
   }
 

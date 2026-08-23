@@ -46,7 +46,6 @@ import type {
 } from './types'
 import { authenticateUserToken, isAuthEnabled, type AuthenticatedUser } from '../../../middleware/user-auth'
 import { userCanAccessProfile } from '../../../db/hermes/users-store'
-import { observeRunChatPetEvent } from '../pet-state-socket'
 import { observeChatRunWebhookEvent, type ChatRunWebhookAgent } from '../chat-webhooks'
 import { codingAgentRunManager } from '../../coding-agents/runtime/run-manager'
 import { respondToEkkoToolApproval } from '../../ekko-agent/approvals'
@@ -1834,7 +1833,7 @@ export class ChatRunSocket {
 
   emitExternalEvent(sessionId: string, event: string, payload: any) {
     const tagged = { ...payload, session_id: sessionId }
-    const profile = this.resolvePetEventProfile(sessionId, tagged)
+    const profile = this.resolveEventProfile(sessionId, tagged)
     const state = this.sessionMap.get(sessionId)
     const session = getSession(sessionId)
     const storedAgent = String(session?.agent || '')
@@ -1849,7 +1848,6 @@ export class ChatRunSocket {
       workflowId: state?.webhookWorkflowId,
       workflowNodeId: state?.webhookWorkflowNodeId,
     })
-    this.observePetEvent(profile, event, tagged)
     this.emitSessionActivity(profile, event, tagged)
     if (state?.isWorking) {
       state.events.push({ event, data: tagged })
@@ -1984,7 +1982,7 @@ export class ChatRunSocket {
 
   private emitToSession(socket: Socket, sessionId: string, event: string, payload: any) {
     const tagged = { ...payload, session_id: sessionId }
-    const profile = this.resolvePetEventProfile(sessionId, tagged)
+    const profile = this.resolveEventProfile(sessionId, tagged)
     const state = this.sessionMap.get(sessionId)
     const session = getSession(sessionId)
     const storedAgent = String(session?.agent || '')
@@ -1999,7 +1997,6 @@ export class ChatRunSocket {
       workflowId: state?.webhookWorkflowId,
       workflowNodeId: state?.webhookWorkflowNodeId,
     })
-    this.observePetEvent(profile, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
     this.nsp.to(`session:${sessionId}`).emit(event, tagged)
     if (!this.nsp.adapter.rooms.get(`session:${sessionId}`)?.size && socket.connected) {
@@ -2017,6 +2014,15 @@ export class ChatRunSocket {
       : undefined
     if (source === 'group_chat') return
     this.nsp.to(`pending-interactions:${profile}`).emit(event, payload)
+  }
+
+  private resolveEventProfile(sessionId: string, payload: Record<string, unknown>): string {
+    const payloadProfile = typeof payload.profile === 'string' ? payload.profile.trim() : ''
+    if (payloadProfile) return payloadProfile
+    const stateProfile = this.sessionMap.get(sessionId)?.profile
+    if (stateProfile) return stateProfile
+    const storedProfile = getSession(sessionId)?.profile
+    return storedProfile || 'default'
   }
 
   private emitSessionActivity(profile: string, event: string, payload: any) {
@@ -2097,20 +2103,4 @@ export class ChatRunSocket {
     logger.info('[chat-run-socket] closed all connections and cleared state')
   }
 
-  private resolvePetEventProfile(sessionId: string, payload: Record<string, unknown>): string {
-    const payloadProfile = typeof payload.profile === 'string' ? payload.profile.trim() : ''
-    if (payloadProfile) return payloadProfile
-    const stateProfile = this.sessionMap.get(sessionId)?.profile
-    if (stateProfile) return stateProfile
-    const storedProfile = getSession(sessionId)?.profile
-    return storedProfile || 'default'
-  }
-
-  private observePetEvent(profile: string, event: string, payload: Record<string, unknown>): void {
-    try {
-      observeRunChatPetEvent(profile, event, payload)
-    } catch (err) {
-      logger.debug(err, '[chat-run-socket] failed to update pet state')
-    }
-  }
 }

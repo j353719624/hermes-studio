@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { BrowserBounds, BrowserProfileCreateInput, BrowserProfileSwitchImpact, BrowserProfileUpdateInput, BrowserSelection, DesktopBrowserProfile, DesktopBrowserState, DesktopBrowserTab } from '../main/browser/browser-types'
 
-type DesktopWindowKind = 'main' | 'pet' | 'chat'
+type DesktopWindowKind = 'main' | 'chat'
 
 function desktopWindowKind(): DesktopWindowKind {
   const arg = process.argv.find(item => item.startsWith('--hermes-window-kind='))
   const kind = arg?.slice('--hermes-window-kind='.length)
-  return kind === 'pet' || kind === 'chat' ? kind : 'main'
+  return kind === 'chat' ? kind : 'main'
 }
 
 contextBridge.exposeInMainWorld('hermesDesktop', {
@@ -28,14 +28,6 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     const listener = (_event: Electron.IpcRendererEvent, state: { isMaximized: boolean }) => callback(state)
     ipcRenderer.on('hermes-desktop:window-state-change', listener)
     return () => ipcRenderer.removeListener('hermes-desktop:window-state-change', listener)
-  },
-  getPetWindowState: () => ipcRenderer.invoke('hermes-desktop:get-pet-window-state'),
-  setPetWindowBounds: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('hermes-desktop:set-pet-window-bounds', bounds),
-  setPetWindowVisible: (visible: boolean) => ipcRenderer.invoke('hermes-desktop:set-pet-window-visible', visible),
-  onPetWindowRefresh: (callback: () => void): (() => void) => {
-    const listener = () => callback()
-    ipcRenderer.on('hermes-desktop:pet-window-refresh', listener)
-    return () => ipcRenderer.removeListener('hermes-desktop:pet-window-refresh', listener)
   },
   ...(desktopWindowKind() === 'main' ? { browser: {
     getState: (): Promise<DesktopBrowserState> => ipcRenderer.invoke('hermes-desktop:browser-get-state'),

@@ -612,20 +612,6 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       return
     }
 
-    if (pathname === '/api/hermes/pets/active') {
-      await route.fulfill(jsonResponse({ pet: null }))
-      return
-    }
-
-    if (pathname === '/api/hermes/petdex/manifest') {
-      await route.fulfill(jsonResponse({
-        generatedAt: '2026-07-28T00:00:00.000Z',
-        total: 0,
-        pets: [],
-      }))
-      return
-    }
-
     if (pathname === '/api/hermes/profiles') {
       await route.fulfill(jsonResponse({
         profiles: [

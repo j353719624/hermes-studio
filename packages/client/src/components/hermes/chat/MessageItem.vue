@@ -51,7 +51,6 @@ const props = defineProps<{
 }>();
 const { t } = useI18n();
 const toast = useMessage();
-const showReasoningUi = true;
 
 const isSystem = computed(() => props.message.role === "system");
 const isAgentError = computed(() => props.message.role === "assistant" && props.message.systemType === "error");
@@ -278,7 +277,7 @@ const quotableContent = computed(() => {
 // 若两者共存，则拼接展示（罕见，但保持信息不丢）。
 const hasReasoningField = computed(() => !!(props.message.reasoning && props.message.reasoning.length > 0));
 
-const hasThinking = computed(() => showReasoningUi && (hasReasoningField.value || parsedThinking.value.hasThinking));
+const hasThinking = computed(() => hasReasoningField.value || parsedThinking.value.hasThinking);
 
 const thinkingFullText = computed(() => {
   const parts: string[] = [];
@@ -305,7 +304,7 @@ const thinkingStreamingNow = computed(() => {
 const thinkingOverride = ref<boolean | null>(null);
 
 const thinkingExpanded = computed(() => {
-  // 详细思考内容默认收起；用户仍可点击标题手动展开，或通过显示思考设置开启。
+  if (thinkingStreamingNow.value) return true;
   if (thinkingOverride.value !== null) return thinkingOverride.value;
   return !!settingsStore.display.show_reasoning;
 });
@@ -613,7 +612,7 @@ function toggleWorkspaceChange(changeId: string): void {
 
 const hasToolDetails = computed(
   () => !!(
-    (showReasoningUi && props.message.reasoning?.trim())
+    props.message.reasoning?.trim()
     || toolArgsPayload.value.full
     || toolResultPayload.value.full
   ),
@@ -975,7 +974,7 @@ onBeforeUnmount(() => {
           class="tool-details-expand"
         >
           <div class="tool-details" @click="handleToolDetailClick">
-            <div v-if="showReasoningUi && message.reasoning?.trim()" class="tool-detail-section">
+            <div v-if="message.reasoning?.trim()" class="tool-detail-section">
               <div class="tool-detail-label">{{ t("chat.thinkingLabel") }}</div>
               <div class="tool-detail-reasoning">
                 <MarkdownRenderer :content="message.reasoning" />

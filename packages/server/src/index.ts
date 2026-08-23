@@ -38,7 +38,6 @@ import {
 import { ensureAppRelayHostClient } from './services/app-relay/connection'
 import { setupGlobalEkkoAgent } from './services/ekko-agent/manager'
 import { WorkflowSocketServer } from './services/workflow-socket'
-import { PetStateSocketServer } from './services/hermes/pet-state-socket'
 import { logger } from './services/logger'
 import { createStaticCompressionMiddleware } from './middleware/static-compression'
 import { getStaticCacheControl, SPA_ENTRY_CACHE_CONTROL } from './middleware/static-cache'
@@ -76,7 +75,6 @@ process.on('unhandledRejection', (reason) => {
 let servers: any[] = []
 let chatRunServer: any = null
 let workflowSocketServer: WorkflowSocketServer | null = null
-let petStateSocketServer: PetStateSocketServer | null = null
 let agentBridgeManager: any = null
 let desktopShutdownHandler: ShutdownHandler | null = null
 
@@ -394,9 +392,6 @@ export async function bootstrap() {
 
   workflowSocketServer = new WorkflowSocketServer(groupChatServer.getIO())
   workflowSocketServer.init()
-
-  petStateSocketServer = new PetStateSocketServer(groupChatServer.getIO())
-  petStateSocketServer.init()
 
   startGlobalAgentServer(groupChatServer.getIO(), { localBaseUrl: loopbackBaseUrl })
   console.log('[bootstrap] global agent server ready')

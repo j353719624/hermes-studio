@@ -33,6 +33,7 @@ import { getActiveProfileDir, getActiveProfileName, getProfileDir, listProfileNa
 import { isNearestExistingRealPathWithin, isPathWithin, relativePathFromBase } from '../../services/hermes/hermes-path'
 import {
   assertAllowedWorkspaceFolder,
+  isFnosStoragePath,
   isWorkspaceListPathAllowed,
   listAllowedWorkspaceRoots,
   normalizeWindowsWorkspacePath,
@@ -1623,6 +1624,7 @@ async function listWindowsWorkspaceDrives() {
 function fnosRootDisplayName(root: string, roots: string[]): string {
   const volume = root.match(/^\/(vol[^/]+)(?:\/|$)/)?.[1]
   if (!volume) return root
+  if (root.toLowerCase() !== `/${volume}`.toLowerCase()) return root
 
   const sameVolume = roots.filter(value => value.match(/^\/(vol[^/]+)(?:\/|$)/)?.[1] === volume)
   if (sameVolume.length <= 1) return `/${volume}`
@@ -1634,7 +1636,9 @@ function fnosRootDisplayName(root: string, roots: string[]): string {
 async function listFnosWorkspaceRoots(statFn: any) {
   const roots = await listAllowedWorkspaceRoots()
   return (await Promise.all(roots.map(async root => {
-    if (!await isWorkspaceListPathAllowed(root, root, statFn)) return null
+    if (!await isWorkspaceListPathAllowed(root, root, statFn, {
+      trustFnosStoragePath: isFnosStoragePath(root),
+    })) return null
     return {
       name: fnosRootDisplayName(root, roots),
       displayName: fnosRootDisplayName(root, roots),
@@ -1645,7 +1649,7 @@ async function listFnosWorkspaceRoots(statFn: any) {
   }))).filter(Boolean)
 }
 
-async function isSafeWorkspaceFolderEntry(entry: any, fullPath: string, basePath: string, statFn: any, options?: { trustWindowsJunctions?: boolean }): Promise<boolean> {
+async function isSafeWorkspaceFolderEntry(entry: any, fullPath: string, basePath: string, statFn: any, options?: { trustFnosStoragePath?: boolean }): Promise<boolean> {
   if (!entry.isDirectory() && !(typeof entry.isSymbolicLink === 'function' && entry.isSymbolicLink())) {
     return false
   }
@@ -1717,11 +1721,11 @@ export async function listWorkspaceFolders(ctx: any) {
     return
   }
 
-  // fnOS exposes only the application workspace and directories that have
-  // been granted to this app. Present those as root nodes, like drive roots
-  // on Windows, instead of showing the internal app-data path as the tree
-  // root. Absolute child paths remain subject to the same allow-list and
-  // real-path checks as every other workspace request.
+  // Present fnOS storage volumes as root nodes, like drive roots on Windows.
+  // The application workspace and fnOS-authorized directories are included
+  // as additional roots when they are not already covered by a volume. Every
+  // child path remains subject to the package user's filesystem permissions
+  // and real-path checks.
   if (process.env.HERMES_FNOS_MODE === '1') {
     if (!subPath) {
       const roots = await listFnosWorkspaceRoots(stat)
@@ -1742,7 +1746,9 @@ export async function listWorkspaceFolders(ctx: any) {
       return
     }
 
-    if (!await isWorkspaceListPathAllowed(resolved.fullPath, resolved.base, stat)) {
+    if (!await isWorkspaceListPathAllowed(resolved.fullPath, resolved.base, stat, {
+      trustFnosStoragePath: isFnosStoragePath(resolved.base),
+    })) {
       ctx.status = 403
       ctx.body = { error: 'Access denied' }
       return
@@ -1752,7 +1758,9 @@ export async function listWorkspaceFolders(ctx: any) {
       const entries = await readdir(resolved.fullPath, { withFileTypes: true })
       const folders = (await Promise.all(entries.map(async entry => {
         const fullPath = resolve(resolved.fullPath, entry.name)
-        if (!await isSafeWorkspaceFolderEntry(entry, fullPath, resolved.base, stat)) return null
+        if (!await isSafeWorkspaceFolderEntry(entry, fullPath, resolved.base, stat, {
+          trustFnosStoragePath: isFnosStoragePath(resolved.base),
+        })) return null
         return { name: entry.name, path: fullPath, fullPath }
       })))
         .filter((entry): entry is { name: string; path: string; fullPath: string } => !!entry)

@@ -62,6 +62,37 @@ describe('workspace path validation', () => {
     }
   })
 
+  it('discovers fnOS storage volumes without exposing system directories', async () => {
+    const { listFnosStorageRoots } = await import('../../packages/server/src/services/hermes/workspace-path')
+    const roots = await listFnosStorageRoots(async path => path === '/'
+      ? [
+        { name: 'vol2', isDirectory: () => true },
+        { name: 'etc', isDirectory: () => true },
+        { name: 'vol1', isDirectory: () => true },
+        { name: 'vol3', isDirectory: () => false },
+        { name: 'volume4', isDirectory: () => true },
+      ]
+      : [])
+
+    expect(roots).toEqual(['/vol1', '/vol2'])
+  })
+
+  it('hides fnOS volumes that the package user cannot enumerate', async () => {
+    const { listFnosStorageRoots } = await import('../../packages/server/src/services/hermes/workspace-path')
+    const roots = await listFnosStorageRoots(async path => {
+      if (path === '/') {
+        return [
+          { name: 'vol1', isDirectory: () => true },
+          { name: 'vol2', isDirectory: () => true },
+        ]
+      }
+      if (path === '/vol1') return []
+      throw new Error('permission denied')
+    })
+
+    expect(roots).toEqual(['/vol1'])
+  })
+
   it('normalizes native Windows drive paths when drive mode is active', async () => {
     const originalPlatform = process.platform
     const originalWorkspaceBase = process.env.WORKSPACE_BASE
@@ -91,7 +122,7 @@ describe('workspace path validation', () => {
 
       await expect(isWorkspaceListPathAllowed('C:\\base\\link', 'C:\\base', directoryStat, { realPathWithinFn: escapedViaJunction })).resolves.toBe(false)
       expect(escapedViaJunction).toHaveBeenCalledWith('C:\\base\\link', 'C:\\base')
-      await expect(isWorkspaceListPathAllowed('C:\\base\\link', 'C:\\base', directoryStat, { trustWindowsJunctions: true, realPathWithinFn: escapedViaJunction })).resolves.toBe(false)
+      await expect(isWorkspaceListPathAllowed('C:\\base\\link', 'C:\\base', directoryStat, { realPathWithinFn: escapedViaJunction })).resolves.toBe(false)
 
       await expect(isWorkspaceListPathAllowed('C:\\base\\project', 'C:\\base', directoryStat, { realPathWithinFn: withinBase })).resolves.toBe(true)
       expect(withinBase).toHaveBeenCalledWith('C:\\base\\project', 'C:\\base')
@@ -112,6 +143,34 @@ describe('workspace path validation', () => {
       expect(realPathWithinFn).not.toHaveBeenCalled()
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform })
+    }
+  })
+
+  it('rejects symlinked intermediate components under fnOS storage roots', async () => {
+    const originalFnosMode = process.env.HERMES_FNOS_MODE
+    process.env.HERMES_FNOS_MODE = '1'
+    try {
+      const { isWorkspaceListPathAllowed } = await import('../../packages/server/src/services/hermes/workspace-path')
+      const directoryStat = async () => ({ isDirectory: () => true }) as any
+      const lstatFn = vi.fn(async (path: string) => ({
+        isSymbolicLink: () => path.replaceAll('\\', '/') === '/vol1/link',
+      })) as any
+
+      await expect(isWorkspaceListPathAllowed(
+        '/vol1/link/child',
+        '/vol1',
+        directoryStat,
+        { trustFnosStoragePath: true, lstatFn },
+      )).resolves.toBe(false)
+      await expect(isWorkspaceListPathAllowed(
+        '/vol1/normal/child',
+        '/vol1',
+        directoryStat,
+        { trustFnosStoragePath: true, lstatFn },
+      )).resolves.toBe(true)
+    } finally {
+      if (originalFnosMode === undefined) delete process.env.HERMES_FNOS_MODE
+      else process.env.HERMES_FNOS_MODE = originalFnosMode
     }
   })
 })

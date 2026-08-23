@@ -1,6 +1,5 @@
 import { logger } from './logger'
 import { closeDb } from '../db'
-import { stopPreviewRuntime } from '../controllers/update'
 import { codingAgentRunManager } from './coding-agents/runtime/run-manager'
 import { shutdownManagedGateways } from './hermes/gateway-runner'
 import { shutdownLocalSttRuntime } from './hermes/local-stt-model-manager'
@@ -71,13 +70,6 @@ export function createShutdownHandler(server: any, groupChatServer?: any, chatRu
     console.log(`[shutdown] Received signal: ${signal}`)
 
     try {
-      try {
-        await stopPreviewRuntime()
-        logger.info('Preview runtime stopped')
-      } catch (err) {
-        logger.warn(err, 'Failed to stop preview runtime (non-fatal)')
-      }
-
       try {
         await shutdownLocalSttRuntime()
         logger.info('Local STT runtime stopped')

@@ -548,13 +548,13 @@ describe('session conversations controller', () => {
       await mod.listWorkspaceFolders(rootCtx)
 
       expect(rootCtx.body.base).toBe('')
-      expect(rootCtx.body.folders).toEqual([
+      expect(rootCtx.body.folders).toEqual(expect.arrayContaining([
         expect.objectContaining({
           path: workspaceBase,
           fullPath: workspaceBase,
           readonly: true,
         }),
-      ])
+      ]))
 
       const workspaceCtx: any = { query: { path: workspaceBase }, body: null }
       await mod.listWorkspaceFolders(workspaceCtx)

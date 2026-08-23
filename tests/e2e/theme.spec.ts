@@ -182,16 +182,6 @@ test('tints transparent app surfaces with the active theme background color', as
     'rgba(26, 26, 26, 0.72)',
   )
 
-  await page.goto('/#/hermes/petdex')
-  await expect(page.locator('.petdex-view')).toHaveCSS(
-    'background-color',
-    'rgba(0, 0, 0, 0)',
-  )
-  await expect(page.locator('.app-main--card')).toHaveCSS(
-    'background-color',
-    'rgba(26, 26, 26, 0.72)',
-  )
-
   await page.goto('/#/hermes/coding-agents')
   await expect(page.locator('.coding-agents-content')).toHaveCSS(
     'background-color',
